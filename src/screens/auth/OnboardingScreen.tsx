@@ -51,11 +51,11 @@ export function OnboardingScreen({ navigation }: Props) {
   const scrollRef = useRef<ScrollView>(null);
   const isLastSlide = activeIndex === SLIDES.length - 1;
 
-  const goToSignUp = () => navigation.replace('SignUpEmail');
+  const goToSignIn = () => navigation.replace('SignIn');
 
   const handleNext = () => {
     if (isLastSlide) {
-      goToSignUp();
+      goToSignIn();
       return;
     }
     const nextIndex = activeIndex + 1;
@@ -109,7 +109,7 @@ export function OnboardingScreen({ navigation }: Props) {
       <View style={styles.footer}>
         <Button label={isLastSlide ? 'Get Started' : 'Next'} onPress={handleNext} />
         {!isLastSlide ? (
-          <Text style={styles.skip} onPress={goToSignUp}>
+          <Text style={styles.skip} onPress={goToSignIn}>
             Skip
           </Text>
         ) : (

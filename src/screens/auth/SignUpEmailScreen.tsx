@@ -17,6 +17,7 @@ import { TextField } from '../../components/TextField';
 import { colors, radius, spacing, typography } from '../../theme';
 import { RootStackParamList } from '../../navigation/types';
 import { isSupabaseConfigured, supabase } from '../../data/supabaseClient';
+import { useAuth } from '../../navigation/AuthContext';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'SignUpEmail'>;
 
@@ -24,12 +25,15 @@ const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 // Purely a UX simulation — no Google Cloud project/OAuth client exists for
 // this app yet, so there's nothing to actually call. Real Google Sign-In
 // would need the account owner to create OAuth credentials in Google Cloud
-// Console (and, once Supabase is connected, wire them into its Google auth
-// provider) — this mock just demonstrates the "skip straight in, no email,
-// no OTP" speed benefit until that setup happens.
+// Console and wire them into Supabase Auth's Google provider. Once a real
+// Supabase project *is* connected, this mock is hidden entirely rather than
+// shown alongside real email OTP auth — it can't produce a real Supabase
+// session, so leaving it up would silently break anything gated on one
+// (RLS-protected inserts like creating a listing/booking).
 const MOCK_GOOGLE_SIGN_IN_DELAY_MS = 700;
 
 export function SignUpEmailScreen({ navigation }: Props) {
+  const { signInMock } = useAuth();
   const [email, setEmail] = useState('');
   const [touched, setTouched] = useState(false);
   const [isSending, setIsSending] = useState(false);
@@ -43,7 +47,7 @@ export function SignUpEmailScreen({ navigation }: Props) {
     setIsGoogleSigningIn(true);
     setTimeout(() => {
       setIsGoogleSigningIn(false);
-      navigation.reset({ index: 0, routes: [{ name: 'Main' }] });
+      signInMock();
     }, MOCK_GOOGLE_SIGN_IN_DELAY_MS);
   };
 
@@ -90,30 +94,34 @@ export function SignUpEmailScreen({ navigation }: Props) {
             phone numbers.
           </Text>
 
-          <Pressable
-            onPress={handleGoogleSignIn}
-            disabled={isGoogleSigningIn}
-            style={({ pressed }) => [
-              styles.googleButton,
-              pressed && styles.googleButtonPressed,
-              isGoogleSigningIn && styles.googleButtonDisabled,
-            ]}
-          >
-            {isGoogleSigningIn ? (
-              <ActivityIndicator color={colors.textPrimary} />
-            ) : (
-              <>
-                <Ionicons name="logo-google" size={20} color={colors.textPrimary} />
-                <Text style={styles.googleButtonText}>Continue with Google</Text>
-              </>
-            )}
-          </Pressable>
+          {!isSupabaseConfigured ? (
+            <>
+              <Pressable
+                onPress={handleGoogleSignIn}
+                disabled={isGoogleSigningIn}
+                style={({ pressed }) => [
+                  styles.googleButton,
+                  pressed && styles.googleButtonPressed,
+                  isGoogleSigningIn && styles.googleButtonDisabled,
+                ]}
+              >
+                {isGoogleSigningIn ? (
+                  <ActivityIndicator color={colors.textPrimary} />
+                ) : (
+                  <>
+                    <Ionicons name="logo-google" size={20} color={colors.textPrimary} />
+                    <Text style={styles.googleButtonText}>Continue with Google</Text>
+                  </>
+                )}
+              </Pressable>
 
-          <View style={styles.dividerRow}>
-            <View style={styles.dividerLine} />
-            <Text style={styles.dividerText}>or continue with email</Text>
-            <View style={styles.dividerLine} />
-          </View>
+              <View style={styles.dividerRow}>
+                <View style={styles.dividerLine} />
+                <Text style={styles.dividerText}>or continue with email</Text>
+                <View style={styles.dividerLine} />
+              </View>
+            </>
+          ) : null}
 
           <View style={styles.fieldSpacing}>
             <TextField

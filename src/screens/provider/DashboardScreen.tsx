@@ -7,7 +7,9 @@ import { Button } from '../../components/Button';
 import { StatusBadge } from '../../components/StatusBadge';
 import { colors, radius, spacing, typography } from '../../theme';
 import { ProviderTabParamList } from '../../navigation/types';
-import { dataSource, CURRENT_USER_ID } from '../../data/dataSource';
+import { dataSource } from '../../data/dataSource';
+import { useAuth } from '../../navigation/AuthContext';
+import { useUserProfile } from '../../navigation/UserProfileContext';
 import { bookingStatusToBadgeStatus, formatDateTimeRange, formatRecurringSchedule, isSameDay } from '../../utils/format';
 import { Booking, Listing } from '../../types';
 
@@ -19,16 +21,18 @@ interface JoinedBooking {
 }
 
 export function DashboardScreen({ navigation }: Props) {
+  const { userId } = useAuth();
+  const { name } = useUserProfile();
   const [listings, setListings] = useState<Listing[]>([]);
   const [upcoming, setUpcoming] = useState<JoinedBooking[]>([]);
   const [todaysCount, setTodaysCount] = useState(0);
 
   const load = useCallback(async () => {
-    const ownListings = await dataSource.getListingsByOwner(CURRENT_USER_ID);
+    const ownListings = await dataSource.getListingsByOwner(userId);
     setListings(ownListings);
 
     const listingById = new Map(ownListings.map((listing) => [listing.id, listing]));
-    const bookings = await dataSource.getBookingsForOwner(CURRENT_USER_ID);
+    const bookings = await dataSource.getBookingsForOwner(userId);
     const confirmed = bookings.filter((b) => b.status === 'booked' || b.status === 'in_progress');
 
     const joined: JoinedBooking[] = confirmed
@@ -42,7 +46,7 @@ export function DashboardScreen({ navigation }: Props) {
     setTodaysCount(
       confirmed.filter((b) => isSameDay(new Date(b.startTime), new Date())).length
     );
-  }, []);
+  }, [userId]);
 
   useFocusEffect(
     useCallback(() => {
@@ -55,7 +59,7 @@ export function DashboardScreen({ navigation }: Props) {
   return (
     <SafeAreaView style={styles.container} edges={['top', 'bottom']}>
       <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
-        <Text style={styles.greeting}>Hi, Rohan 👋</Text>
+        <Text style={styles.greeting}>Hi, {name.split(' ')[0]} 👋</Text>
         <Text style={styles.subtitle}>Manage your parking spots</Text>
 
         <View style={styles.statsRow}>

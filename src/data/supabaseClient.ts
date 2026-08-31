@@ -10,9 +10,10 @@ const supabaseAnonKey = process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY ?? '';
 
 /**
  * The single switch the whole app uses to decide real backend vs mock data —
- * both the `DataSource` factory (see `dataSource.ts`) and the Email OTP auth
- * screens branch on this exact flag. True only once a real Supabase project
- * URL + anon key have been copied into `.env` (see `supabase/README.md`).
+ * both the `DataSource` factory (see `dataSource.ts`) and the auth screens
+ * (Sign In/Up, Google, Forgot Password) branch on this exact flag. True only
+ * once a real Supabase project URL + anon key have been copied into `.env`
+ * (see `supabase/README.md`).
  */
 export const isSupabaseConfigured = Boolean(supabaseUrl && supabaseAnonKey);
 

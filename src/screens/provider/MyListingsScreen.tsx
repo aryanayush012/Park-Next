@@ -6,20 +6,22 @@ import { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { ListingCard } from '../../components/ListingCard';
 import { colors, radius, spacing, typography } from '../../theme';
 import { ProviderListingsStackParamList } from '../../navigation/types';
-import { dataSource, CURRENT_USER_ID } from '../../data/dataSource';
+import { dataSource } from '../../data/dataSource';
 import { AMENITIES } from '../../data/mockData';
+import { useAuth } from '../../navigation/AuthContext';
 import { Listing } from '../../types';
 import { mapListingToDraft } from './addListingDraft';
 
 type Props = NativeStackScreenProps<ProviderListingsStackParamList, 'MyListings'>;
 
 export function MyListingsScreen({ navigation }: Props) {
+  const { userId } = useAuth();
   const [listings, setListings] = useState<Listing[]>([]);
 
   const load = useCallback(async () => {
-    const own = await dataSource.getListingsByOwner(CURRENT_USER_ID);
+    const own = await dataSource.getListingsByOwner(userId);
     setListings(own);
-  }, []);
+  }, [userId]);
 
   useFocusEffect(
     useCallback(() => {

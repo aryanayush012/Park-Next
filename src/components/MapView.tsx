@@ -478,7 +478,7 @@ function buildMapHtml(lat: number, lng: number, zoom: number): string {
       icon: priceIcon(destination.label, false),
     });
     routeLayer = L.layerGroup([straight, originMarker, destMarker]).addTo(map);
-    try { map.fitBounds(straight.getBounds(), { padding: [50, 80] }); } catch (e) {}
+    try { map.fitBounds(straight.getBounds(), { padding: [50, 80], maxZoom: 15 }); } catch (e) {}
 
     var controller = new AbortController();
     var timeoutId = setTimeout(function () { controller.abort(); }, 4000);
@@ -501,7 +501,7 @@ function buildMapHtml(lat: number, lng: number, zoom: number): string {
         routeLayer.removeLayer(straight);
         routeLayer.addLayer(real);
         real.bringToBack();
-        try { map.fitBounds(real.getBounds(), { padding: [50, 80] }); } catch (e) {}
+        try { map.fitBounds(real.getBounds(), { padding: [50, 80], maxZoom: 15 }); } catch (e) {}
         post({ type: 'routeReady', source: 'osrm', distanceMeters: route0.distance, durationSeconds: route0.duration });
       })
       .catch(function (err) {

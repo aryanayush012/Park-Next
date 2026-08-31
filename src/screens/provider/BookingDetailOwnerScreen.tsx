@@ -1,33 +1,50 @@
-import React, { useEffect, useState } from 'react';
-import { Linking, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
+import React, { useCallback, useEffect, useState } from 'react';
+import { Alert, Linking, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { Button } from '../../components/Button';
+import { StarRating } from '../../components/StarRating';
+import { StarRatingInput } from '../../components/StarRatingInput';
 import { StatusBadge } from '../../components/StatusBadge';
 import { colors, radius, spacing, typography } from '../../theme';
 import { ProviderBookingsStackParamList } from '../../navigation/types';
 import { dataSource } from '../../data/dataSource';
-import { MOCK_RENTERS, VEHICLE_TYPE_LABELS } from '../../data/mockData';
+import { VEHICLE_TYPE_LABELS } from '../../data/mockData';
+import { useAuth } from '../../navigation/AuthContext';
+import { useRealtimeTable } from '../../hooks/useRealtimeTable';
 import {
   bookingStatusToBadgeStatus,
   formatElapsedClock,
   formatRelativeDate,
   formatTimeFromISO,
 } from '../../utils/format';
-import { Booking, Listing, RenterProfile } from '../../types';
+import { formatResponseDeadline } from '../../utils/bookingRequest';
+import { Booking, BookingStatus, Listing, RenterProfile, Review } from '../../types';
+
+/** Contact info (phone) is only meaningful once a request actually turned
+ * into a real booking — never for one still pending, and no longer relevant
+ * once it's declined/expired/cancelled without ever becoming one. */
+const CONTACT_REVEALED_STATUSES: BookingStatus[] = ['booked', 'in_progress', 'completed'];
 
 type Props = NativeStackScreenProps<ProviderBookingsStackParamList, 'BookingDetailOwner'>;
 
 export function BookingDetailOwnerScreen({ navigation, route }: Props) {
   const { bookingId } = route.params;
+  const { userId } = useAuth();
   const [booking, setBooking] = useState<Booking | null>(null);
   const [listing, setListing] = useState<Listing | null>(null);
   const [renter, setRenter] = useState<RenterProfile | null>(null);
   const [codeInput, setCodeInput] = useState('');
   const [codeError, setCodeError] = useState<string | null>(null);
   const [verifying, setVerifying] = useState(false);
+  const [isResponding, setIsResponding] = useState(false);
   const [now, setNow] = useState(() => Date.now());
+  const [myReview, setMyReview] = useState<Review | null | undefined>(undefined);
+  const [ratingInput, setRatingInput] = useState(0);
+  const [comment, setComment] = useState('');
+  const [submitting, setSubmitting] = useState(false);
+  const [submitError, setSubmitError] = useState<string | null>(null);
 
   useEffect(() => {
     dataSource.getBookingById(bookingId).then(async (result) => {
@@ -35,9 +52,65 @@ export function BookingDetailOwnerScreen({ navigation, route }: Props) {
       setBooking(result);
       const relatedListing = await dataSource.getListingById(result.listingId);
       if (relatedListing) setListing(relatedListing);
-      setRenter(MOCK_RENTERS[result.renterId] ?? null);
+      const renterProfile = await dataSource.getPublicProfile(result.renterId);
+      setRenter(renterProfile ?? null);
     });
   }, [bookingId]);
+
+  // Surfaces "Rate This Renter" the moment this screen itself notices the
+  // booking has completed — covers both a fresh mount on an already-completed
+  // booking (e.g. opened from the History tab) and a live transition while
+  // this screen stays open (the renter checking out from their own device,
+  // caught by the poll/realtime hooks below).
+  useEffect(() => {
+    if (!booking || booking.status !== 'completed') return;
+    dataSource.getMyReviewForBooking(booking.id, userId).then((existing) => setMyReview(existing ?? null));
+  }, [booking?.status, booking?.id, userId]);
+
+  // The renter checking out happens on their own device/screen, not from
+  // any action taken here — so unlike the arrival-code confirmation (which
+  // updates local state immediately after this screen's own button press),
+  // reaching `completed` while this screen is already open depends entirely
+  // on noticing it from the outside. Poll while checked in (cheap, and this
+  // is the only signal in mock mode); realtime below shortcuts the wait
+  // once Supabase is connected.
+  useEffect(() => {
+    if (booking?.status !== 'in_progress') return;
+    const poll = setInterval(async () => {
+      const latest = await dataSource.getBookingById(bookingId);
+      if (latest && latest.status !== 'in_progress') {
+        setBooking(latest);
+      }
+    }, 5000);
+    return () => clearInterval(poll);
+  }, [booking?.status, bookingId]);
+
+  const refetchBooking = useCallback(() => {
+    dataSource.getBookingById(bookingId).then((latest) => {
+      if (latest) setBooking(latest);
+    });
+  }, [bookingId]);
+  useRealtimeTable('bookings', refetchBooking, `id=eq.${bookingId}`);
+
+  const handleSubmitReview = async () => {
+    if (!booking || ratingInput === 0) return;
+    setSubmitting(true);
+    setSubmitError(null);
+    try {
+      const review = await dataSource.submitReview({
+        bookingId,
+        reviewerId: userId,
+        revieweeId: booking.renterId,
+        rating: ratingInput,
+        comment: comment.trim() || undefined,
+      });
+      setMyReview(review);
+    } catch (err) {
+      setSubmitError(err instanceof Error ? err.message : 'Something went wrong. Try again.');
+    } finally {
+      setSubmitting(false);
+    }
+  };
 
   useEffect(() => {
     if (booking?.status !== 'in_progress') return;
@@ -56,6 +129,22 @@ export function BookingDetailOwnerScreen({ navigation, route }: Props) {
   const handleContact = () => {
     if (renter?.phone) {
       Linking.openURL(`tel:${renter.phone}`).catch(() => {});
+    }
+  };
+
+  const handleRespond = async (accept: boolean) => {
+    if (!booking) return;
+    setIsResponding(true);
+    try {
+      const updated = await dataSource.respondToBookingRequest(booking.id, accept);
+      setBooking(updated);
+    } catch (err) {
+      Alert.alert(
+        'Could not respond',
+        err instanceof Error ? err.message : 'This request may have already expired or been withdrawn.'
+      );
+    } finally {
+      setIsResponding(false);
     }
   };
 
@@ -98,7 +187,7 @@ export function BookingDetailOwnerScreen({ navigation, route }: Props) {
                 {(renter?.rating ?? 0).toFixed(1)} · Verified renter
               </Text>
             </View>
-            {booking.status !== 'pending' ? (
+            {CONTACT_REVEALED_STATUSES.includes(booking.status) ? (
               <Text style={styles.renterPhoneText}>{renter?.phone}</Text>
             ) : (
               <Text style={styles.renterPhoneHidden}>
@@ -134,7 +223,38 @@ export function BookingDetailOwnerScreen({ navigation, route }: Props) {
             }
           />
           <DetailRow label="Amount" value={`${listing.currency}${booking.totalPrice}`} highlight />
+          {booking.status === 'pending' ? (
+            <DetailRow
+              label="Respond"
+              value={formatResponseDeadline(booking.responseDeadline)}
+              highlight
+            />
+          ) : null}
         </View>
+
+        {booking.status === 'pending' ? (
+          <View style={styles.card}>
+            <Text style={styles.codeHint}>
+              Accept to confirm this booking, or decline if you can't take it — the renter is
+              notified either way.
+            </Text>
+            <View style={styles.responseActionsRow}>
+              <Button
+                label="Decline"
+                variant="secondary"
+                onPress={() => handleRespond(false)}
+                loading={isResponding}
+                style={styles.responseActionButton}
+              />
+              <Button
+                label="Accept"
+                onPress={() => handleRespond(true)}
+                loading={isResponding}
+                style={styles.responseActionButton}
+              />
+            </View>
+          </View>
+        ) : null}
 
         {booking.status === 'booked' ? (
           <>
@@ -187,7 +307,45 @@ export function BookingDetailOwnerScreen({ navigation, route }: Props) {
           />
         </View>
 
-        {booking.status !== 'pending' ? (
+        {booking.status === 'completed' ? (
+          <>
+            <Text style={styles.sectionTitle}>Rate This Renter</Text>
+            <View style={styles.card}>
+              {myReview === undefined ? null : myReview ? (
+                <>
+                  <StarRating rating={myReview.rating} size={18} />
+                  {myReview.comment ? (
+                    <Text style={styles.reviewComment}>{myReview.comment}</Text>
+                  ) : null}
+                  <Text style={styles.reviewSubmittedNote}>Thanks for rating this renter!</Text>
+                </>
+              ) : (
+                <>
+                  <Text style={styles.reviewPrompt}>How was your experience with this renter?</Text>
+                  <StarRatingInput value={ratingInput} onChange={setRatingInput} />
+                  <TextInput
+                    style={styles.commentInput}
+                    value={comment}
+                    onChangeText={setComment}
+                    placeholder="Add a comment (optional)"
+                    placeholderTextColor={colors.textMuted}
+                    multiline
+                  />
+                  {submitError ? <Text style={styles.reviewErrorText}>{submitError}</Text> : null}
+                  <Button
+                    label="Submit Review"
+                    onPress={handleSubmitReview}
+                    loading={submitting}
+                    disabled={ratingInput === 0}
+                    style={styles.submitButton}
+                  />
+                </>
+              )}
+            </View>
+          </>
+        ) : null}
+
+        {CONTACT_REVEALED_STATUSES.includes(booking.status) ? (
           <Button
             label="Contact Renter"
             variant="secondary"
@@ -365,7 +523,49 @@ const styles = StyleSheet.create({
   confirmButton: {
     marginTop: spacing.xxs,
   },
+  responseActionsRow: {
+    flexDirection: 'row',
+    gap: spacing.sm,
+  },
+  responseActionButton: {
+    flex: 1,
+  },
   contactButton: {
+    marginTop: spacing.sm,
+  },
+  reviewPrompt: {
+    ...typography.body,
+    color: colors.textSecondary,
+    marginBottom: spacing.sm,
+  },
+  commentInput: {
+    ...typography.body,
+    color: colors.textPrimary,
+    backgroundColor: colors.background,
+    borderRadius: radius.md,
+    borderWidth: 1,
+    borderColor: colors.surfaceBorder,
+    padding: spacing.sm,
+    marginTop: spacing.sm,
+    minHeight: 72,
+    textAlignVertical: 'top',
+  },
+  reviewErrorText: {
+    ...typography.caption,
+    color: colors.error,
+    marginTop: spacing.sm,
+  },
+  submitButton: {
+    marginTop: spacing.sm,
+  },
+  reviewComment: {
+    ...typography.body,
+    color: colors.textSecondary,
+    marginTop: spacing.sm,
+  },
+  reviewSubmittedNote: {
+    ...typography.caption,
+    color: colors.textMuted,
     marginTop: spacing.sm,
   },
 });

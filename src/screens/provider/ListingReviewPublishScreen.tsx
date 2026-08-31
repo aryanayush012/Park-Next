@@ -8,13 +8,15 @@ import { Checkbox } from '../../components/Checkbox';
 import { ListingCard } from '../../components/ListingCard';
 import { colors, spacing, typography } from '../../theme';
 import { ProviderListingsStackParamList } from '../../navigation/types';
-import { dataSource, CURRENT_USER_ID } from '../../data/dataSource';
+import { dataSource } from '../../data/dataSource';
 import { AMENITIES } from '../../data/mockData';
+import { useAuth } from '../../navigation/AuthContext';
 import { mapDraftToCreateInput } from './addListingDraft';
 
 type Props = NativeStackScreenProps<ProviderListingsStackParamList, 'ListingReviewPublish'>;
 
 export function ListingReviewPublishScreen({ navigation, route }: Props) {
+  const { userId } = useAuth();
   const { draft, editingListingId } = route.params;
   const [confirmed, setConfirmed] = useState(false);
   const [isPublishing, setIsPublishing] = useState(false);
@@ -23,7 +25,7 @@ export function ListingReviewPublishScreen({ navigation, route }: Props) {
     if (!confirmed) return;
     setIsPublishing(true);
     try {
-      const input = mapDraftToCreateInput(draft, CURRENT_USER_ID);
+      const input = mapDraftToCreateInput(draft, userId);
       if (editingListingId) {
         await dataSource.updateListing(editingListingId, input);
       } else {

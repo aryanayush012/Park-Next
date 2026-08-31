@@ -195,7 +195,7 @@ export function ListingDetailScreen({ navigation, route }: Props) {
 
       <View style={styles.footer}>
         <Button
-          label={`Book Now · ${listing.currency}${listing.pricePerHour}/hr`}
+          label={`${bookingType === 'instant' ? 'Book Now' : 'Book Advance'} · ${listing.currency}${listing.pricePerHour}/hr`}
           onPress={handleBookNow}
         />
       </View>

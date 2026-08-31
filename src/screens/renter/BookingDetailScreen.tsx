@@ -1,25 +1,35 @@
 import React, { useEffect, useState } from 'react';
-import { Image, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Image, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
+import { Button } from '../../components/Button';
+import { StarRating } from '../../components/StarRating';
+import { StarRatingInput } from '../../components/StarRatingInput';
 import { StatusBadge } from '../../components/StatusBadge';
 import { colors, radius, spacing, typography } from '../../theme';
 import { RenterBookingsStackParamList } from '../../navigation/types';
 import { dataSource } from '../../data/dataSource';
+import { useAuth } from '../../navigation/AuthContext';
 import {
   bookingStatusToBadgeStatus,
   formatDateTimeRange,
   formatTimeFromISO,
 } from '../../utils/format';
-import { Booking, Listing } from '../../types';
+import { Booking, Listing, Review } from '../../types';
 
 type Props = NativeStackScreenProps<RenterBookingsStackParamList, 'BookingDetail'>;
 
 export function BookingDetailScreen({ navigation, route }: Props) {
   const { bookingId } = route.params;
+  const { userId } = useAuth();
   const [booking, setBooking] = useState<Booking | null>(null);
   const [listing, setListing] = useState<Listing | null>(null);
+  const [myReview, setMyReview] = useState<Review | null | undefined>(undefined);
+  const [ratingInput, setRatingInput] = useState(0);
+  const [comment, setComment] = useState('');
+  const [submitting, setSubmitting] = useState(false);
+  const [submitError, setSubmitError] = useState<string | null>(null);
 
   useEffect(() => {
     dataSource.getBookingById(bookingId).then(async (result) => {
@@ -27,8 +37,34 @@ export function BookingDetailScreen({ navigation, route }: Props) {
       setBooking(result);
       const relatedListing = await dataSource.getListingById(result.listingId);
       if (relatedListing) setListing(relatedListing);
+      if (result.status === 'completed') {
+        const existing = await dataSource.getMyReviewForBooking(bookingId, userId);
+        setMyReview(existing ?? null);
+      } else {
+        setMyReview(null);
+      }
     });
-  }, [bookingId]);
+  }, [bookingId, userId]);
+
+  const handleSubmitReview = async () => {
+    if (!listing || ratingInput === 0) return;
+    setSubmitting(true);
+    setSubmitError(null);
+    try {
+      const review = await dataSource.submitReview({
+        bookingId,
+        reviewerId: userId,
+        revieweeId: listing.ownerId,
+        rating: ratingInput,
+        comment: comment.trim() || undefined,
+      });
+      setMyReview(review);
+    } catch (err) {
+      setSubmitError(err instanceof Error ? err.message : 'Something went wrong. Try again.');
+    } finally {
+      setSubmitting(false);
+    }
+  };
 
   if (!booking || !listing) {
     return (
@@ -75,9 +111,43 @@ export function BookingDetailScreen({ navigation, route }: Props) {
           />
         </View>
 
-        <Text style={styles.footnote}>
-          Rating & review coming in a later phase — for now this is a read-only summary.
-        </Text>
+        {booking.status === 'completed' ? (
+          <>
+            <Text style={styles.sectionTitle}>Your Review</Text>
+            <View style={styles.card}>
+              {myReview === undefined ? null : myReview ? (
+                <>
+                  <StarRating rating={myReview.rating} size={18} />
+                  {myReview.comment ? (
+                    <Text style={styles.reviewComment}>{myReview.comment}</Text>
+                  ) : null}
+                  <Text style={styles.reviewSubmittedNote}>Thanks for rating your host!</Text>
+                </>
+              ) : (
+                <>
+                  <Text style={styles.reviewPrompt}>How was your experience with the host?</Text>
+                  <StarRatingInput value={ratingInput} onChange={setRatingInput} />
+                  <TextInput
+                    style={styles.commentInput}
+                    value={comment}
+                    onChangeText={setComment}
+                    placeholder="Add a comment (optional)"
+                    placeholderTextColor={colors.textMuted}
+                    multiline
+                  />
+                  {submitError ? <Text style={styles.reviewErrorText}>{submitError}</Text> : null}
+                  <Button
+                    label="Submit Review"
+                    onPress={handleSubmitReview}
+                    loading={submitting}
+                    disabled={ratingInput === 0}
+                    style={styles.submitButton}
+                  />
+                </>
+              )}
+            </View>
+          </>
+        ) : null}
       </ScrollView>
     </SafeAreaView>
   );
@@ -186,9 +256,44 @@ const styles = StyleSheet.create({
     ...typography.h3,
     color: colors.primary,
   },
-  footnote: {
+  sectionTitle: {
+    ...typography.h3,
+    color: colors.textPrimary,
+    marginBottom: spacing.sm,
+  },
+  reviewPrompt: {
+    ...typography.body,
+    color: colors.textSecondary,
+    marginBottom: spacing.sm,
+  },
+  commentInput: {
+    ...typography.body,
+    color: colors.textPrimary,
+    backgroundColor: colors.background,
+    borderRadius: radius.md,
+    borderWidth: 1,
+    borderColor: colors.surfaceBorder,
+    padding: spacing.sm,
+    marginTop: spacing.sm,
+    minHeight: 72,
+    textAlignVertical: 'top',
+  },
+  reviewErrorText: {
+    ...typography.caption,
+    color: colors.error,
+    marginTop: spacing.sm,
+  },
+  submitButton: {
+    marginTop: spacing.sm,
+  },
+  reviewComment: {
+    ...typography.body,
+    color: colors.textSecondary,
+    marginTop: spacing.sm,
+  },
+  reviewSubmittedNote: {
     ...typography.caption,
     color: colors.textMuted,
-    marginBottom: spacing.lg,
+    marginTop: spacing.sm,
   },
 });

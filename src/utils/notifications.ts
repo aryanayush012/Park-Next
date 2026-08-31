@@ -130,6 +130,43 @@ export async function scheduleBookingEndingSoonReminder(
 }
 
 /**
+ * Fires an immediate local notification telling the owner a new booking
+ * request just came in. Called from the Booking Requests screen the moment
+ * its realtime subscription (or poll) notices a brand-new `pending` row —
+ * see `BookingRequestsScreen.tsx`. This is a same-device local notification,
+ * not a true server push: it only fires while this device's app process is
+ * alive (foregrounded, or backgrounded with its realtime socket still
+ * connected) — an owner whose app is fully closed won't be notified until
+ * they reopen it. A true "notified even when the app is killed" push would
+ * need server-side infrastructure (a Supabase Edge Function triggered on
+ * insert, calling the Expo Push API with a stored push token) that this app
+ * doesn't have yet — same category of gap as the rest of this file's
+ * reminder, just one step further (that one still fires on a schedule set
+ * from this same device; this one depends on a live connection to notice
+ * the event at all).
+ */
+export async function notifyNewBookingRequest(listingTitle: string): Promise<void> {
+  const ok = await ensureNotificationSetup();
+  if (!ok) return;
+  const Notifications = await loadNotifications();
+  if (!Notifications) return;
+
+  try {
+    await Notifications.scheduleNotificationAsync({
+      content: {
+        title: 'New booking request',
+        body: `Someone wants to book ${listingTitle} — respond before their request expires.`,
+        sound: true,
+        ...(Platform.OS === 'android' ? { channelId: ANDROID_CHANNEL_ID } : {}),
+      },
+      trigger: null,
+    });
+  } catch {
+    // Best-effort — see the module-level comment above.
+  }
+}
+
+/**
  * Cancels any scheduled "ending soon" reminder for this booking. Looks the
  * notification up by the `bookingId` stamped into its `data` (rather than
  * tracking identifiers in a JS-side map), so this stays correct even across

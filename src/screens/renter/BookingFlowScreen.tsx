@@ -7,7 +7,8 @@ import { Button } from '../../components/Button';
 import { Stepper } from '../../components/Stepper';
 import { colors, radius, spacing, typography } from '../../theme';
 import { RenterHomeStackParamList } from '../../navigation/types';
-import { dataSource, CURRENT_USER_ID } from '../../data/dataSource';
+import { dataSource } from '../../data/dataSource';
+import { useAuth } from '../../navigation/AuthContext';
 import {
   clampToStep,
   formatDurationLabel,
@@ -24,9 +25,11 @@ import { Listing } from '../../types';
 type Props = NativeStackScreenProps<RenterHomeStackParamList, 'BookingFlow'>;
 
 export function BookingFlowScreen({ navigation, route }: Props) {
+  const { userId } = useAuth();
   const { listingId, bookingType: mode, schedule } = route.params;
   const [listing, setListing] = useState<Listing | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [bookingError, setBookingError] = useState<string | undefined>(undefined);
 
   // Advance mode — pre-filled from whatever date/time was already chosen on
   // the Home/Map search (see ScheduleSelection), so this screen never asks
@@ -64,6 +67,7 @@ export function BookingFlowScreen({ navigation, route }: Props) {
   const handleConfirm = async () => {
     if (!listing || !canConfirm) return;
     setIsSubmitting(true);
+    setBookingError(undefined);
 
     let startTime: Date;
     let endTime: Date;
@@ -81,18 +85,40 @@ export function BookingFlowScreen({ navigation, route }: Props) {
       totalPrice = advanceTotal;
     }
 
-    const booking = await dataSource.createBooking({
-      listingId: listing.id,
-      renterId: CURRENT_USER_ID,
-      type: mode,
-      startTime: startTime.toISOString(),
-      endTime: endTime.toISOString(),
-      totalPrice,
-      pricingModel: listing.pricingModel,
-    });
-
-    setIsSubmitting(false);
-    navigation.replace('BookingConfirmation', { bookingId: booking.id, justBooked: true });
+    try {
+      const booking = await dataSource.createBooking({
+        listingId: listing.id,
+        renterId: userId,
+        type: mode,
+        startTime: startTime.toISOString(),
+        endTime: endTime.toISOString(),
+        totalPrice,
+        pricingModel: listing.pricingModel,
+      });
+      navigation.replace('BookingConfirmation', { bookingId: booking.id, justBooked: true });
+    } catch (error) {
+      // The database itself is the real source of truth for "is this slot
+      // still free" — a real Postgres project enforces that with a GiST
+      // exclusion constraint (`bookings_no_overlap`, migration 0004) rather
+      // than the app just trusting whatever it last fetched, so a genuine
+      // double-booking race (someone else booked the exact same overlapping
+      // window a moment before this request landed) surfaces here as a
+      // thrown Postgres error (code `23P01`) instead of ever being silently
+      // allowed. Left uncaught, that rejected promise used to crash the app
+      // outright; now it's shown as a normal, recoverable inline message and
+      // the button re-enables so the renter can just pick a different time.
+      const isOverlapConflict =
+        Boolean(error) && typeof error === 'object' && (error as { code?: string }).code === '23P01';
+      setBookingError(
+        isOverlapConflict
+          ? 'This spot just got booked for that time by someone else. Pick a different time or date and try again.'
+          : error instanceof Error
+          ? error.message
+          : 'Something went wrong creating your booking. Please try again.'
+      );
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   return (
@@ -216,6 +242,7 @@ export function BookingFlowScreen({ navigation, route }: Props) {
       </ScrollView>
 
       <View style={styles.footer}>
+        {bookingError ? <Text style={styles.bookingErrorText}>{bookingError}</Text> : null}
         <Button
           label="Continue to Confirm"
           onPress={handleConfirm}
@@ -392,5 +419,11 @@ const styles = StyleSheet.create({
     padding: spacing.md,
     borderTopWidth: 1,
     borderTopColor: colors.surfaceBorder,
+  },
+  bookingErrorText: {
+    ...typography.caption,
+    color: colors.error,
+    marginBottom: spacing.sm,
+    textAlign: 'center',
   },
 });

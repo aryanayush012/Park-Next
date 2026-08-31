@@ -70,7 +70,7 @@ export const MOCK_LISTINGS: Listing[] = [
     distanceKm: 0.6,
     pricePerHour: 40,
     currency: '₹',
-    pricingModel: 'metered',
+    pricingModel: 'flat',
     rating: 4.8,
     ratingCount: 128,
     amenities: ['ev_charging', 'covered', 'cctv'],
@@ -117,7 +117,7 @@ export const MOCK_LISTINGS: Listing[] = [
     distanceKm: 1.9,
     pricePerHour: 25,
     currency: '₹',
-    pricingModel: 'metered',
+    pricingModel: 'flat',
     rating: 4.3,
     ratingCount: 41,
     amenities: ['car'],
@@ -164,7 +164,7 @@ export const MOCK_LISTINGS: Listing[] = [
     distanceKm: 0.9,
     pricePerHour: 45,
     currency: '₹',
-    pricingModel: 'metered',
+    pricingModel: 'flat',
     rating: 4.7,
     ratingCount: 96,
     amenities: ['cctv', 'guarded'],
@@ -213,6 +213,11 @@ export const MOCK_BOOKINGS: Booking[] = [
     endTime: todayAt(13, 0),
     totalPrice: 120,
     pricingModel: 'flat',
+    // Already past the request stage (status is `booked`, not `pending`) —
+    // this value is never actually read; kept equal to `startTime` purely
+    // so every sample booking satisfies the type without needing a
+    // meaningful number here.
+    responseDeadline: todayAt(10, 0),
     verificationCode: '4821',
   },
   {
@@ -225,6 +230,7 @@ export const MOCK_BOOKINGS: Booking[] = [
     endTime: tomorrowAt(21, 0),
     totalPrice: 90,
     pricingModel: 'flat',
+    responseDeadline: tomorrowAt(18, 0), // already accepted — see b1's comment
     verificationCode: '7734',
   },
   {
@@ -237,6 +243,7 @@ export const MOCK_BOOKINGS: Booking[] = [
     endTime: daysAgoAt(1, 16, 0),
     totalPrice: 40,
     pricingModel: 'flat',
+    responseDeadline: daysAgoAt(1, 14, 0), // already accepted — see b1's comment
     checkInAt: daysAgoAt(1, 14, 4),
     checkOutAt: daysAgoAt(1, 16, 2),
     verificationCode: '1092',
@@ -251,6 +258,7 @@ export const MOCK_BOOKINGS: Booking[] = [
     endTime: daysAgoAt(6, 12, 0),
     totalPrice: 90,
     pricingModel: 'flat',
+    responseDeadline: daysAgoAt(6, 9, 0), // already accepted — see b1's comment
     checkInAt: daysAgoAt(6, 9, 5),
     checkOutAt: daysAgoAt(6, 12, 10),
     verificationCode: '5567',
@@ -266,7 +274,8 @@ export const MOCK_BOOKINGS: Booking[] = [
     startTime: todayAt(16, 0),
     endTime: todayAt(19, 0),
     totalPrice: 120,
-    pricingModel: 'metered',
+    pricingModel: 'flat',
+    responseDeadline: todayAt(16, 0), // already accepted — see b1's comment
     renterVehiclePlate: 'KA 05 MN 4471',
     renterVehicleType: 'car',
     verificationCode: '3390',
@@ -280,11 +289,33 @@ export const MOCK_BOOKINGS: Booking[] = [
     startTime: tomorrowAt(9, 0),
     endTime: tomorrowAt(18, 0),
     totalPrice: 225,
-    pricingModel: 'metered',
+    pricingModel: 'flat',
+    responseDeadline: tomorrowAt(9, 0), // already accepted — see b1's comment
     recurring: { days: [1, 2, 3, 4, 5], startTime: '09:00', endTime: '18:00' },
     renterVehiclePlate: 'KA 03 JK 8821',
     renterVehicleType: 'car',
     verificationCode: '8146',
+  },
+  {
+    // A completed booking on one of the current user's own listings, so the
+    // "rate the renter" flow (Booking Requests → History tab → Booking
+    // Detail) has something to actually open in mock mode, using the same
+    // single-device role-toggle trick the testing guide already documents.
+    id: 'ob3',
+    listingId: 'l1',
+    renterId: 'u10',
+    type: 'instant',
+    status: 'completed',
+    startTime: daysAgoAt(2, 11, 0),
+    endTime: daysAgoAt(2, 13, 30),
+    totalPrice: 100,
+    pricingModel: 'flat',
+    responseDeadline: daysAgoAt(2, 11, 0), // already accepted — see b1's comment
+    checkInAt: daysAgoAt(2, 11, 3),
+    checkOutAt: daysAgoAt(2, 13, 28),
+    renterVehiclePlate: 'KA 05 MN 4471',
+    renterVehicleType: 'car',
+    verificationCode: '2951',
   },
 
   // --- Pending booking requests awaiting the owner's Accept/Decline (Booking Requests screen) ---
@@ -297,7 +328,11 @@ export const MOCK_BOOKINGS: Booking[] = [
     startTime: todayAt(14, 0),
     endTime: todayAt(16, 0),
     totalPrice: 80,
-    pricingModel: 'metered',
+    pricingModel: 'flat',
+    // Instant requests get a 10-minute response window — 8 minutes left is
+    // enough time to test Accept/Decline without it expiring mid-demo, while
+    // still showing the countdown urgency on Booking Requests.
+    responseDeadline: minutesFromNow(8),
     renterVehiclePlate: 'KA 01 QW 3345',
     renterVehicleType: 'car',
     verificationCode: '2278',
@@ -311,7 +346,9 @@ export const MOCK_BOOKINGS: Booking[] = [
     startTime: tomorrowAt(9, 0),
     endTime: tomorrowAt(11, 0),
     totalPrice: 50,
-    pricingModel: 'metered',
+    pricingModel: 'flat',
+    // Advance requests get up to a 3-hour response window.
+    responseDeadline: minutesFromNow(180),
     renterVehiclePlate: 'KA 09 XY 7712',
     renterVehicleType: 'two_wheeler',
     verificationCode: '6603',
@@ -325,7 +362,8 @@ export const MOCK_BOOKINGS: Booking[] = [
     startTime: nextWeekdayAt(1, 9, 0),
     endTime: nextWeekdayAt(1, 18, 0),
     totalPrice: 360,
-    pricingModel: 'metered',
+    pricingModel: 'flat',
+    responseDeadline: minutesFromNow(180),
     recurring: { days: [1, 2, 3, 4, 5], startTime: '09:00', endTime: '18:00' },
     renterVehiclePlate: 'KA 02 LM 5567',
     renterVehicleType: 'car',
@@ -340,13 +378,20 @@ export const MOCK_BOOKINGS: Booking[] = [
     startTime: nextWeekdayAt(6, 8, 0),
     endTime: nextWeekdayAt(6, 20, 0),
     totalPrice: 540,
-    pricingModel: 'metered',
+    pricingModel: 'flat',
+    responseDeadline: minutesFromNow(180),
     recurring: { days: [0, 6], startTime: '08:00', endTime: '20:00' },
     renterVehiclePlate: 'KA 41 AB 9090',
     renterVehicleType: 'suv',
     verificationCode: '0487',
   },
 ];
+
+/** Used only for sample `pending` bookings' `responseDeadline` — a real one
+ * is computed by `utils/bookingRequest.ts`'s `computeResponseDeadline`. */
+function minutesFromNow(minutes: number): string {
+  return new Date(Date.now() + minutes * 60000).toISOString();
+}
 
 function todayAt(hour: number, minute: number): string {
   const d = new Date();

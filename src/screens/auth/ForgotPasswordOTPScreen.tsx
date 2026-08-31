@@ -10,13 +10,13 @@ import { RootStackParamList } from '../../navigation/types';
 import { isSupabaseConfigured, supabase } from '../../data/supabaseClient';
 import { useAuth } from '../../navigation/AuthContext';
 
-type Props = NativeStackScreenProps<RootStackParamList, 'EmailOTP'>;
+type Props = NativeStackScreenProps<RootStackParamList, 'ForgotPasswordOTP'>;
 
 const RESEND_COOLDOWN_SECONDS = 30;
 const MOCK_VERIFY_DELAY_MS = 900;
 
-export function EmailOTPScreen({ navigation, route }: Props) {
-  const { signInMock } = useAuth();
+export function ForgotPasswordOTPScreen({ navigation, route }: Props) {
+  const { beginPasswordRecovery } = useAuth();
   const { email } = route.params;
   const [code, setCode] = useState('');
   const [error, setError] = useState<string | undefined>(undefined);
@@ -41,8 +41,6 @@ export function EmailOTPScreen({ navigation, route }: Props) {
     if (cooldown > 0 || isResending) return;
 
     if (!isSupabaseConfigured) {
-      // No real backend configured — keep the existing local-only reset,
-      // no network call.
       setCooldown(RESEND_COOLDOWN_SECONDS);
       setCode('');
       setError(undefined);
@@ -50,7 +48,7 @@ export function EmailOTPScreen({ navigation, route }: Props) {
     }
 
     setIsResending(true);
-    const { error: resendError } = await supabase.auth.signInWithOtp({ email });
+    const { error: resendError } = await supabase.auth.resetPasswordForEmail(email);
     setIsResending(false);
     if (resendError) {
       setError(resendError.message);
@@ -68,12 +66,12 @@ export function EmailOTPScreen({ navigation, route }: Props) {
     }
 
     if (!isSupabaseConfigured) {
-      // Auth is mocked for now — no real backend configured. Any 6-digit
-      // code is accepted (123456 included) after a short simulated delay.
+      // Mocked, same as every other auth screen without a real backend —
+      // any 6-digit code is accepted after a short simulated delay.
       setIsVerifying(true);
       setTimeout(() => {
         setIsVerifying(false);
-        signInMock();
+        beginPasswordRecovery();
       }, MOCK_VERIFY_DELAY_MS);
       return;
     }
@@ -82,16 +80,24 @@ export function EmailOTPScreen({ navigation, route }: Props) {
     const { error: verifyError } = await supabase.auth.verifyOtp({
       email,
       token: code,
-      type: 'email',
+      type: 'recovery',
     });
     setIsVerifying(false);
     if (verifyError) {
       setError(verifyError.message);
       return;
     }
-    // No manual navigation here — a successful `verifyOtp` fires Supabase's
-    // own `onAuthStateChange`, which flips `AuthContext`'s `isSignedIn` and
-    // lets `RootNavigator` swap straight to the Main stack on its own.
+    // A successful `verifyOtp({ type: 'recovery' })` establishes a real
+    // (if short-lived) Supabase session — which, left unchecked, would
+    // otherwise make `AuthContext`'s own `onAuthStateChange` listener flip
+    // `isSignedIn` true and let `RootNavigator` jump straight into the main
+    // app before this person ever sets a new password. `beginPasswordRecovery`
+    // sets an explicit local flag `RootNavigator` checks *ahead of*
+    // `isSignedIn`, forcing it to Reset Password instead regardless of
+    // whatever auth event Supabase's SDK happens to fire internally here
+    // (verified inconsistent across Supabase's own SDKs — see the comment
+    // on `isPasswordRecovery` in AuthContext.tsx).
+    beginPasswordRecovery();
   };
 
   const formattedCooldown = `0:${cooldown.toString().padStart(2, '0')}`;
@@ -103,7 +109,7 @@ export function EmailOTPScreen({ navigation, route }: Props) {
       </Pressable>
 
       <View style={styles.content}>
-        <Text style={styles.title}>Enter verification code</Text>
+        <Text style={styles.title}>Enter reset code</Text>
         <Text style={styles.subtitle}>We sent a 6-digit code to {email}</Text>
 
         <View style={styles.otpWrap}>
@@ -129,7 +135,7 @@ export function EmailOTPScreen({ navigation, route }: Props) {
       </View>
 
       <View style={styles.footer}>
-        <Button label="Verify & Continue" onPress={handleVerify} loading={isVerifying} />
+        <Button label="Verify Code" onPress={handleVerify} loading={isVerifying} />
       </View>
     </SafeAreaView>
   );

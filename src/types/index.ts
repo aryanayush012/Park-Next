@@ -84,7 +84,11 @@ export type BookingStatus =
   | 'in_progress'
   | 'completed'
   | 'cancelled'
-  | 'declined';
+  | 'declined'
+  /** Owner never responded within their response window — see
+   * `utils/bookingRequest.ts`. Distinct from `declined` (an active owner
+   * decision) purely so the renter can be told the actual reason. */
+  | 'expired';
 
 export interface RecurringSchedule {
   /** 0 = Sunday ... 6 = Saturday, matches Date#getDay(). */
@@ -108,6 +112,14 @@ export interface Booking {
   /** Estimated or final total, in the listing's currency. */
   totalPrice: number;
   pricingModel: PricingModel;
+  /**
+   * ISO timestamp — the owner must Accept/Decline a `pending` request by
+   * this time (10 minutes for an instant booking, up to ~3 hours for an
+   * advance one, see `utils/bookingRequest.ts`) or it auto-expires. Kept on
+   * every booking regardless of status/type so nothing has to special-case
+   * reading it — irrelevant once a request is no longer `pending`.
+   */
+  responseDeadline: string;
   recurring?: RecurringSchedule;
   /** Set once the renter taps "I've Arrived". */
   checkInAt?: string;
@@ -144,6 +156,34 @@ export interface RenterProfile {
   name: string;
   rating: number;
   phone: string;
+  /** Optional profile photo — never required at signup, unlike name/phone. */
+  avatarUrl?: string;
+}
+
+/**
+ * A single review left about one participant of a completed booking by the
+ * other — a renter reviewing the host/listing, or the host reviewing the
+ * renter. One per (booking, reviewer) pair — see `reviews_insert_participant`
+ * RLS policy and its matching unique constraint in
+ * `supabase/migrations/0005_reviews_and_reports.sql`.
+ */
+export interface Review {
+  id: string;
+  bookingId: string;
+  reviewerId: string;
+  revieweeId: string;
+  /** 1–5. */
+  rating: number;
+  comment?: string;
+  createdAt: string;
+}
+
+export interface CreateReviewInput {
+  bookingId: string;
+  reviewerId: string;
+  revieweeId: string;
+  rating: number;
+  comment?: string;
 }
 
 /** In-progress form state threaded through the multi-step Add Listing flow. */

@@ -6,12 +6,16 @@ import {
   BookingType,
   CreateBookingInput,
   CreateListingInput,
+  CreateReviewInput,
   Listing,
   PricingModel,
   RecurringSchedule,
+  RenterProfile,
+  Review,
   VehicleType,
 } from '../types';
 import type { DataSource } from './dataSource';
+import { computeResponseDeadline } from '../utils/responseDeadline';
 
 /**
  * Real-backend implementation of `DataSource`, talking to the Supabase
@@ -35,7 +39,9 @@ const LISTING_COLUMNS =
   'id, owner_id, title, description, address, vehicle_types, amenities, pricing_model, price_per_hour, available_days, available_from, available_until, photos, is_active, ownership_confirmed, created_at, latitude, longitude';
 
 const BOOKING_COLUMNS =
-  'id, listing_id, renter_id, booking_type, status, start_at, end_at, recurring_rule, checked_in_at, checked_out_at, amount_owed, verification_code, created_at, listings!inner(price_per_hour, pricing_model, owner_id)';
+  'id, listing_id, renter_id, booking_type, status, start_at, end_at, recurring_rule, checked_in_at, checked_out_at, amount_owed, verification_code, response_deadline, created_at, listings!inner(price_per_hour, pricing_model, owner_id)';
+
+const REVIEW_COLUMNS = 'id, booking_id, reviewer_id, reviewee_id, rating, comment, created_at';
 
 interface ListingRow {
   id: string;
@@ -72,8 +78,27 @@ interface BookingRow {
   checked_out_at: string | null;
   amount_owed: number | null;
   verification_code: string;
+  response_deadline: string;
   created_at: string;
   listings: { price_per_hour: number; pricing_model: PricingModel; owner_id: string } | null;
+}
+
+interface ReviewRow {
+  id: string;
+  booking_id: string;
+  reviewer_id: string;
+  reviewee_id: string;
+  rating: number;
+  comment: string | null;
+  created_at: string;
+}
+
+/** Row shape returned by the `listing_ratings`/`profile_ratings` RPCs (0009) — same two aggregate columns either way, just keyed by a different id column. */
+interface RatingRow {
+  listing_id?: string;
+  profile_id?: string;
+  rating: number | null;
+  rating_count: number;
 }
 
 /** The DB enum allows `accepted` as an intermediate state; this app's flows never write it, but read it defensively as `booked` just in case something else does. */
@@ -93,8 +118,10 @@ function rowToListing(row: ListingRow): Listing {
     pricePerHour: row.price_per_hour,
     currency: '₹',
     pricingModel: row.pricing_model,
-    // Ratings aggregation from `reviews` isn't part of this migration set —
-    // a follow-up view (e.g. `listings_with_rating`) would compute this.
+    // Placeholder — overwritten by `attachListingRatings` below using the
+    // `listing_ratings` RPC (0009). Left as 0/0 here so any caller that
+    // forgets to attach ratings still gets a sane, non-crashing default
+    // rather than `undefined`.
     rating: 0,
     ratingCount: 0,
     amenities: (row.amenities ?? []) as AmenityKey[],
@@ -155,10 +182,45 @@ function rowToBooking(row: BookingRow): Booking {
     checkInAt: row.checked_in_at ?? undefined,
     checkOutAt: row.checked_out_at ?? undefined,
     verificationCode: row.verification_code,
+    responseDeadline: row.response_deadline,
+  };
+}
+
+function rowToReview(row: ReviewRow): Review {
+  return {
+    id: row.id,
+    bookingId: row.booking_id,
+    reviewerId: row.reviewer_id,
+    revieweeId: row.reviewee_id,
+    rating: row.rating,
+    comment: row.comment ?? undefined,
+    createdAt: row.created_at,
   };
 }
 
 export class SupabaseDataSource implements DataSource {
+  /**
+   * Fetches real rating aggregates for a batch of listings in one round
+   * trip (the `listing_ratings` RPC, 0009) and merges them in, rather than
+   * every listing-returning method below leaving the `rating: 0` placeholder
+   * `rowToListing` sets by default.
+   */
+  private async attachListingRatings(listings: Listing[]): Promise<Listing[]> {
+    if (listings.length === 0) return listings;
+    const { data, error } = await supabase.rpc('listing_ratings', {
+      listing_ids: listings.map((listing) => listing.id),
+    });
+    if (error) throw error;
+    const byId = new Map(
+      ((data ?? []) as unknown as RatingRow[]).map((row) => [row.listing_id, row])
+    );
+    return listings.map((listing) => {
+      const row = byId.get(listing.id);
+      if (!row) return listing;
+      return { ...listing, rating: Number(row.rating) || 0, ratingCount: row.rating_count };
+    });
+  }
+
   async getListings(): Promise<Listing[]> {
     const { data, error } = await supabase
       .from('listings')
@@ -166,7 +228,7 @@ export class SupabaseDataSource implements DataSource {
       .eq('is_active', true)
       .order('created_at', { ascending: false });
     if (error) throw error;
-    return (data as unknown as ListingRow[]).map(rowToListing);
+    return this.attachListingRatings((data as unknown as ListingRow[]).map(rowToListing));
   }
 
   async getListingById(id: string): Promise<Listing | undefined> {
@@ -176,7 +238,9 @@ export class SupabaseDataSource implements DataSource {
       .eq('id', id)
       .maybeSingle();
     if (error) throw error;
-    return data ? rowToListing(data as unknown as ListingRow) : undefined;
+    if (!data) return undefined;
+    const [listing] = await this.attachListingRatings([rowToListing(data as unknown as ListingRow)]);
+    return listing;
   }
 
   async getNearbyListings(
@@ -190,7 +254,7 @@ export class SupabaseDataSource implements DataSource {
       radius_meters: radiusMeters,
     });
     if (error) throw error;
-    return ((data ?? []) as unknown as ListingRow[]).map(rowToListing);
+    return this.attachListingRatings(((data ?? []) as unknown as ListingRow[]).map(rowToListing));
   }
 
   async getListingsByOwner(ownerId: string): Promise<Listing[]> {
@@ -200,7 +264,7 @@ export class SupabaseDataSource implements DataSource {
       .eq('owner_id', ownerId)
       .order('created_at', { ascending: false });
     if (error) throw error;
-    return (data as unknown as ListingRow[]).map(rowToListing);
+    return this.attachListingRatings((data as unknown as ListingRow[]).map(rowToListing));
   }
 
   async createListing(input: CreateListingInput): Promise<Listing> {
@@ -279,13 +343,15 @@ export class SupabaseDataSource implements DataSource {
         listing_id: input.listingId,
         renter_id: input.renterId,
         booking_type: input.type,
-        // This app's renter flow always confirms instantly today (no
-        // owner-approval step in the UI yet) — see BookingFlowScreen.
-        status: 'booked',
+        // Every new booking starts as a request awaiting the owner's
+        // Accept/Decline, not straight to `booked` — see BookingFlowScreen
+        // and the Booking Requests / Booking Confirmation screens.
+        status: 'pending',
         start_at: input.startTime,
         end_at: input.endTime,
         recurring_rule: input.recurring ?? null,
         amount_owed: input.totalPrice,
+        response_deadline: computeResponseDeadline(input.type, input.startTime),
       })
       .select(BOOKING_COLUMNS)
       .single();
@@ -376,6 +442,14 @@ export class SupabaseDataSource implements DataSource {
       .update({
         status: 'completed',
         checked_out_at: checkedOutAt.toISOString(),
+        // The slot was only actually held until whenever the renter really
+        // left — not until whatever end time was originally booked.
+        // Shrinking (or, for an overstay, extending) `end_at` to match is
+        // what frees the remainder of an early-finished booking for the
+        // `bookings_no_overlap` exclusion constraint to allow someone else
+        // to book, instead of it staying "occupied" for the rest of the
+        // originally scheduled window.
+        end_at: checkedOutAt.toISOString(),
         amount_owed: amountOwed,
       })
       .eq('id', bookingId)
@@ -383,6 +457,30 @@ export class SupabaseDataSource implements DataSource {
       .single();
     if (error) throw error;
     return rowToBooking(data as unknown as BookingRow);
+  }
+
+  async getPublicProfile(userId: string): Promise<RenterProfile | undefined> {
+    const { data, error } = await supabase
+      .from('profiles')
+      .select('id, name, phone, avatar_url')
+      .eq('id', userId)
+      .maybeSingle();
+    if (error) throw error;
+    if (!data) return undefined;
+
+    const { data: ratingRows, error: ratingError } = await supabase.rpc('profile_ratings', {
+      profile_ids: [userId],
+    });
+    if (ratingError) throw ratingError;
+    const ratingRow = ((ratingRows ?? []) as unknown as RatingRow[])[0];
+
+    return {
+      id: data.id,
+      name: data.name || 'ParkNext User',
+      phone: data.phone || '',
+      rating: ratingRow ? Number(ratingRow.rating) || 0 : 0,
+      avatarUrl: data.avatar_url || undefined,
+    };
   }
 
   async getBookingsForOwner(ownerId: string): Promise<Booking[]> {
@@ -407,14 +505,94 @@ export class SupabaseDataSource implements DataSource {
   }
 
   async respondToBookingRequest(bookingId: string, accept: boolean): Promise<Booking> {
+    // Guarded on `status = 'pending'` so this can never accept/decline a
+    // request that's already been responded to, cancelled by the renter, or
+    // auto-expired since the owner's screen last loaded it — a real
+    // possibility given the response-deadline window, and a plain
+    // unconditional update would silently "revive" an expired request.
     const { data, error } = await supabase
       .from('bookings')
       .update({ status: accept ? 'booked' : 'declined' })
       .eq('id', bookingId)
+      .eq('status', 'pending')
       .select(BOOKING_COLUMNS)
+      .maybeSingle();
+    if (error) throw error;
+    if (!data) {
+      const current = await this.getBookingById(bookingId);
+      throw new Error(
+        current?.status === 'expired'
+          ? 'This request already expired — you can no longer respond to it.'
+          : 'This request is no longer pending.'
+      );
+    }
+    return rowToBooking(data as unknown as BookingRow);
+  }
+
+  async expireBookingRequest(bookingId: string): Promise<Booking> {
+    const { data, error } = await supabase
+      .from('bookings')
+      .update({ status: 'expired' })
+      .eq('id', bookingId)
+      .eq('status', 'pending')
+      .select(BOOKING_COLUMNS)
+      .maybeSingle();
+    if (error) throw error;
+    if (data) return rowToBooking(data as unknown as BookingRow);
+    // Already left `pending` by the time this ran (another client beat it
+    // to the transition, or it wasn't actually overdue) — return the
+    // current row unchanged rather than erroring.
+    const current = await this.getBookingById(bookingId);
+    if (!current) throw new Error('Booking not found');
+    return current;
+  }
+
+  async cancelBooking(bookingId: string): Promise<Booking> {
+    const { data, error } = await supabase
+      .from('bookings')
+      .update({ status: 'cancelled' })
+      .eq('id', bookingId)
+      .eq('status', 'pending')
+      .select(BOOKING_COLUMNS)
+      .maybeSingle();
+    if (error) throw error;
+    if (data) return rowToBooking(data as unknown as BookingRow);
+    const current = await this.getBookingById(bookingId);
+    if (!current) throw new Error('Booking not found');
+    return current;
+  }
+
+  async submitReview(input: CreateReviewInput): Promise<Review> {
+    // No client-side "already completed"/"already reviewed" pre-check here
+    // — the database enforces both for real: `reviews_insert_participant`
+    // requires the reviewer to actually be a participant on the booking,
+    // and the `(booking_id, reviewer_id)` unique constraint rejects a
+    // second review, surfacing as a normal thrown Postgres error either way
+    // (mock mode does the equivalent checks itself, see `MockDataSource`).
+    const { data, error } = await supabase
+      .from('reviews')
+      .insert({
+        booking_id: input.bookingId,
+        reviewer_id: input.reviewerId,
+        reviewee_id: input.revieweeId,
+        rating: input.rating,
+        comment: input.comment ?? null,
+      })
+      .select(REVIEW_COLUMNS)
       .single();
     if (error) throw error;
-    return rowToBooking(data as unknown as BookingRow);
+    return rowToReview(data as unknown as ReviewRow);
+  }
+
+  async getMyReviewForBooking(bookingId: string, reviewerId: string): Promise<Review | undefined> {
+    const { data, error } = await supabase
+      .from('reviews')
+      .select(REVIEW_COLUMNS)
+      .eq('booking_id', bookingId)
+      .eq('reviewer_id', reviewerId)
+      .maybeSingle();
+    if (error) throw error;
+    return data ? rowToReview(data as unknown as ReviewRow) : undefined;
   }
 }
 

@@ -1,8 +1,7 @@
 import React, { useState } from 'react';
-import { Alert, Image, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Image, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
-import * as ImagePicker from 'expo-image-picker';
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { Button } from '../../components/Button';
 import { SelectableChip } from '../../components/SelectableChip';
@@ -10,6 +9,7 @@ import { colors, radius, spacing, typography } from '../../theme';
 import { ProviderListingsStackParamList } from '../../navigation/types';
 import { AMENITIES, AMENITY_SELECTOR_KEYS } from '../../data/mockData';
 import { AmenityKey } from '../../types';
+import { choosePhotoSource, pickPhotosFromLibrary, takePhotoWithCamera } from '../../utils/imagePicker';
 
 type Props = NativeStackScreenProps<ProviderListingsStackParamList, 'AddListingAmenitiesPhotos'>;
 
@@ -28,30 +28,25 @@ export function AddListingAmenitiesPhotosScreen({ navigation, route }: Props) {
     setPhotos((prev) => prev.filter((p) => p !== uri));
   };
 
-  const handlePickPhotos = async () => {
-    const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
-    if (!permission.granted) {
-      Alert.alert(
-        'Photo access needed',
-        'Allow ParkNext to access your photo library to add listing photos.'
-      );
-      return;
-    }
+  const handleTakePhoto = async () => {
+    if (photos.length >= MAX_PHOTOS) return;
+    const uri = await takePhotoWithCamera();
+    if (uri) setPhotos((prev) => [...prev, uri].slice(0, MAX_PHOTOS));
+  };
 
+  const handleChooseFromLibrary = async () => {
     const remaining = MAX_PHOTOS - photos.length;
     if (remaining <= 0) return;
+    const uris = await pickPhotosFromLibrary(remaining);
+    if (uris) setPhotos((prev) => [...prev, ...uris].slice(0, MAX_PHOTOS));
+  };
 
-    const result = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: ['images'],
-      allowsMultipleSelection: true,
-      selectionLimit: remaining,
-      quality: 0.8,
+  const handleAddPhoto = () => {
+    choosePhotoSource({
+      title: 'Add a listing photo',
+      onTakePhoto: handleTakePhoto,
+      onChooseLibrary: handleChooseFromLibrary,
     });
-
-    if (!result.canceled) {
-      const newUris = result.assets.map((asset) => asset.uri);
-      setPhotos((prev) => [...prev, ...newUris].slice(0, MAX_PHOTOS));
-    }
   };
 
   const handleContinue = () => {
@@ -101,7 +96,7 @@ export function AddListingAmenitiesPhotosScreen({ navigation, route }: Props) {
             </View>
           ))}
           {photos.length < MAX_PHOTOS ? (
-            <Pressable onPress={handlePickPhotos} style={[styles.photoTile, styles.addTile]}>
+            <Pressable onPress={handleAddPhoto} style={[styles.photoTile, styles.addTile]}>
               <Ionicons name="add" size={28} color={colors.textSecondary} />
             </Pressable>
           ) : null}

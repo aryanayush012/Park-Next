@@ -8,7 +8,7 @@ import { BookingStatus, GeoPoint, ListingStatus } from '../types';
  */
 export function bookingStatusToBadgeStatus(status: BookingStatus): ListingStatus {
   if (status === 'pending') return 'booked';
-  if (status === 'cancelled' || status === 'declined') return 'completed';
+  if (status === 'cancelled' || status === 'declined' || status === 'expired') return 'completed';
   return status;
 }
 

@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Animated,
   Dimensions,
@@ -22,8 +22,9 @@ import { Stepper } from '../../components/Stepper';
 import { colors, radius, spacing, typography } from '../../theme';
 import { RenterHomeStackParamList } from '../../navigation/types';
 import { dataSource } from '../../data/dataSource';
-import { AMENITIES } from '../../data/mockData';
+import { AMENITIES, AMENITY_SELECTOR_KEYS } from '../../data/mockData';
 import { useCurrentLocation } from '../../hooks/useCurrentLocation';
+import { useRealtimeTable } from '../../hooks/useRealtimeTable';
 import { isListingAvailableForWindow } from '../../utils/listingAvailability';
 import {
   clampToStep,
@@ -36,7 +37,7 @@ import {
   nextDays,
   TIME_STEP_MINUTES,
 } from '../../utils/scheduling';
-import { BookingType, Listing, VehicleType } from '../../types';
+import { AmenityKey, BookingType, Listing, VehicleType } from '../../types';
 
 type Props = NativeStackScreenProps<RenterHomeStackParamList, 'HomeMap'>;
 
@@ -44,13 +45,42 @@ const { height: SCREEN_HEIGHT } = Dimensions.get('window');
 const SHEET_COLLAPSED_HEIGHT = 148;
 const SHEET_EXPANDED_HEIGHT = Math.round(SCREEN_HEIGHT * 0.62);
 const CARD_HEIGHT = 258;
+// Caps the Filters sheet's scrollable body so its "Show N Spots" button stays
+// on screen even with every section (Sort/Budget/Amenities/Vehicle Type)
+// visible at once, on a shorter device.
+const FILTERS_SCROLL_MAX_HEIGHT = Math.round(SCREEN_HEIGHT * 0.5);
+
+/** One of a small set of hourly-price bands — replaces the old flat "Budget
+ * Friendly" on/off toggle with something that scales past this app's own
+ * sample-data price range (which happens to sit under ₹50/hr today). */
+type BudgetBucket = 'under_50' | '50_100' | '100_200' | '200_300' | 'above_300';
+
+interface BudgetBucketDef {
+  key: BudgetBucket;
+  label: string;
+  min: number;
+  /** null = open-ended (no upper bound). */
+  max: number | null;
+}
+
+const BUDGET_BUCKETS: BudgetBucketDef[] = [
+  { key: 'under_50', label: 'Under ₹50/hr', min: 0, max: 50 },
+  { key: '50_100', label: '₹50 – 100/hr', min: 50, max: 100 },
+  { key: '100_200', label: '₹100 – 200/hr', min: 100, max: 200 },
+  { key: '200_300', label: '₹200 – 300/hr', min: 200, max: 300 },
+  { key: 'above_300', label: 'Above ₹300/hr', min: 300, max: null },
+];
 
 interface Filters {
-  budgetFriendly: boolean;
-  nearby: boolean;
-  evCharging: boolean;
+  /** null = any price. */
+  budgetBucket: BudgetBucket | null;
+  /** A listing must have every amenity in this set — empty set = no amenity requirement. */
+  amenities: AmenityKey[];
+  /** null = any vehicle type. */
   vehicleType: VehicleType | null;
 }
+
+const EMPTY_FILTERS: Filters = { budgetBucket: null, amenities: [], vehicleType: null };
 
 /** Whether the renter is looking for a spot right now, or planning ahead for a later date/time. */
 type SearchMode = 'now' | 'later';
@@ -59,12 +89,12 @@ function clamp(value: number, min: number, max: number): number {
   return Math.min(max, Math.max(min, value));
 }
 
-const VEHICLE_CYCLE: VehicleType[] = ['car', 'suv', 'two_wheeler'];
-const VEHICLE_LABEL: Record<VehicleType, string> = {
-  car: 'Car',
-  suv: 'SUV',
-  two_wheeler: '2-Wheeler',
-};
+const VEHICLE_OPTIONS: { key: VehicleType | null; label: string }[] = [
+  { key: null, label: 'Any' },
+  { key: 'car', label: 'Car' },
+  { key: 'suv', label: 'SUV' },
+  { key: 'two_wheeler', label: '2-Wheeler' },
+];
 
 export function HomeMapScreen({ navigation }: Props) {
   const {
@@ -72,19 +102,22 @@ export function HomeMapScreen({ navigation }: Props) {
     source: locationSource,
     loading: locationLoading,
     error: locationError,
+    reason: locationReason,
     refresh: refreshLocation,
+    openLocationSettings,
   } = useCurrentLocation();
+  // Services off, or a permission the OS won't prompt for again — neither
+  // can be fixed by simply re-running the same check, so the notice should
+  // send the person to Settings instead of just retrying in place.
+  const locationNeedsSettings =
+    locationReason === 'services_disabled' || locationReason === 'permission_needs_settings';
   const [listings, setListings] = useState<Listing[]>([]);
   const [query, setQuery] = useState('');
-  const [filters, setFilters] = useState<Filters>({
-    budgetFriendly: false,
-    nearby: false,
-    evCharging: false,
-    vehicleType: null,
-  });
+  const [filters, setFilters] = useState<Filters>(EMPTY_FILTERS);
   const [selectedListingId, setSelectedListingId] = useState<string | null>(null);
   const [sortMode, setSortMode] = useState<'distance' | 'rating'>('distance');
   const [sheetExpanded, setSheetExpanded] = useState(false);
+  const [filtersModalVisible, setFiltersModalVisible] = useState(false);
 
   // "When do you need parking?" — chosen before a specific spot, so the list
   // below can be filtered down to only the spots actually available for that
@@ -114,9 +147,18 @@ export function HomeMapScreen({ navigation }: Props) {
   // compute the next frame / decide which way to snap.
   const currentHeightRef = useRef(SHEET_COLLAPSED_HEIGHT);
 
-  useEffect(() => {
+  const loadListings = useCallback(() => {
     dataSource.getListings().then(setListings);
   }, []);
+
+  useEffect(() => {
+    loadListings();
+  }, [loadListings]);
+
+  // Once Supabase is connected, a listing published/edited/toggled on a
+  // different device shows up here live instead of only on next reload —
+  // a no-op in mock mode. See `src/hooks/useRealtimeTable.ts`.
+  useRealtimeTable('listings', loadListings);
 
   useEffect(() => {
     const target = sheetExpanded ? SHEET_EXPANDED_HEIGHT : SHEET_COLLAPSED_HEIGHT;
@@ -183,15 +225,22 @@ export function HomeMapScreen({ navigation }: Props) {
     };
   }, [searchMode, scheduleDays, scheduleDateOffset, scheduleStartMinutes, scheduleDurationMinutes]);
 
+  const budgetBucketDef = useMemo(
+    () => BUDGET_BUCKETS.find((bucket) => bucket.key === filters.budgetBucket) ?? null,
+    [filters.budgetBucket]
+  );
+
   const filteredListings = useMemo(() => {
     const q = query.trim().toLowerCase();
     const result = listings.filter((listing) => {
       if (q && !listing.title.toLowerCase().includes(q) && !listing.address.toLowerCase().includes(q)) {
         return false;
       }
-      if (filters.budgetFriendly && listing.pricePerHour > 35) return false;
-      if (filters.nearby && listing.distanceKm > 1.5) return false;
-      if (filters.evCharging && !listing.amenities.includes('ev_charging')) return false;
+      if (budgetBucketDef) {
+        const { min, max } = budgetBucketDef;
+        if (listing.pricePerHour < min || (max !== null && listing.pricePerHour >= max)) return false;
+      }
+      if (filters.amenities.some((key) => !listing.amenities.includes(key))) return false;
       if (filters.vehicleType && !listing.vehicleTypes.includes(filters.vehicleType)) return false;
       if (!isListingAvailableForWindow(listing, availabilityWindow)) return false;
       return true;
@@ -200,7 +249,13 @@ export function HomeMapScreen({ navigation }: Props) {
     return [...result].sort((a, b) =>
       sortMode === 'distance' ? a.distanceKm - b.distanceKm : b.rating - a.rating
     );
-  }, [listings, query, filters, sortMode, availabilityWindow]);
+  }, [listings, query, filters, budgetBucketDef, sortMode, availabilityWindow]);
+
+  // Drives the little count badge on the "Filters" button — sort isn't
+  // counted here since it's an ordering preference, not something that
+  // narrows the list down.
+  const activeFilterCount =
+    (filters.budgetBucket ? 1 : 0) + filters.amenities.length + (filters.vehicleType ? 1 : 0);
 
   const markers: MapMarker[] = useMemo(
     () =>
@@ -245,18 +300,24 @@ export function HomeMapScreen({ navigation }: Props) {
     navigation.navigate('ListingDetail', { listingId, defaultBookingType, schedule });
   };
 
-  const toggleFilter = (key: keyof Omit<Filters, 'vehicleType'>) => {
-    setFilters((prev) => ({ ...prev, [key]: !prev[key] }));
+  const setBudgetBucket = (key: BudgetBucket | null) => {
+    setFilters((prev) => ({ ...prev, budgetBucket: prev.budgetBucket === key ? null : key }));
   };
 
-  const cycleVehicleType = () => {
-    setFilters((prev) => {
-      if (!prev.vehicleType) return { ...prev, vehicleType: VEHICLE_CYCLE[0] };
-      const currentIndex = VEHICLE_CYCLE.indexOf(prev.vehicleType);
-      const nextIndex = currentIndex + 1;
-      return { ...prev, vehicleType: nextIndex < VEHICLE_CYCLE.length ? VEHICLE_CYCLE[nextIndex] : null };
-    });
+  const toggleAmenity = (key: AmenityKey) => {
+    setFilters((prev) => ({
+      ...prev,
+      amenities: prev.amenities.includes(key)
+        ? prev.amenities.filter((a) => a !== key)
+        : [...prev.amenities, key],
+    }));
   };
+
+  const setVehicleType = (key: VehicleType | null) => {
+    setFilters((prev) => ({ ...prev, vehicleType: key }));
+  };
+
+  const clearAllFilters = () => setFilters(EMPTY_FILTERS);
 
   return (
     <View style={styles.container}>
@@ -318,34 +379,16 @@ export function HomeMapScreen({ navigation }: Props) {
           </Pressable>
         </View>
 
-        <View style={styles.chipsRow}>
-          <FilterChip
-            label="Budget (≤ ₹35/hr)"
-            active={filters.budgetFriendly}
-            onPress={() => toggleFilter('budgetFriendly')}
-          />
-          <FilterChip
-            label="Nearby (≤ 1.5 km)"
-            active={filters.nearby}
-            onPress={() => toggleFilter('nearby')}
-          />
-          <FilterChip
-            label={AMENITIES.ev_charging.label}
-            active={filters.evCharging}
-            onPress={() => toggleFilter('evCharging')}
-          />
-          <FilterChip
-            label={filters.vehicleType ? VEHICLE_LABEL[filters.vehicleType] : 'Vehicle Type'}
-            active={Boolean(filters.vehicleType)}
-            onPress={cycleVehicleType}
-          />
-        </View>
-
         {!locationLoading && locationSource === 'mock' && (
-          <Pressable style={styles.locationNotice} onPress={refreshLocation} hitSlop={4}>
+          <Pressable
+            style={styles.locationNotice}
+            onPress={locationNeedsSettings ? openLocationSettings : refreshLocation}
+            hitSlop={4}
+          >
             <Ionicons name="location-outline" size={13} color={colors.textSecondary} />
             <Text style={styles.locationNoticeText}>
-              {locationError ?? 'Showing a sample location.'} Tap to retry.
+              {locationError ?? 'Showing a sample location.'}{' '}
+              {locationNeedsSettings ? 'Tap to open Settings.' : 'Tap to retry.'}
             </Text>
           </Pressable>
         )}
@@ -362,14 +405,14 @@ export function HomeMapScreen({ navigation }: Props) {
               {filteredListings.length} spots {searchMode === 'now' ? 'available now' : 'available then'}
             </Text>
           </View>
-          <Pressable
-            onPress={() => setSortMode((prev) => (prev === 'distance' ? 'rating' : 'distance'))}
-            style={styles.sortToggle}
-          >
-            <Text style={styles.sortToggleText}>
-              {sortMode === 'distance' ? 'Nearest' : 'Top rated'}
-            </Text>
-            <Ionicons name="chevron-down" size={14} color={colors.textSecondary} />
+          <Pressable onPress={() => setFiltersModalVisible(true)} style={styles.filtersButton}>
+            <Ionicons name="options-outline" size={15} color={colors.textPrimary} />
+            <Text style={styles.filtersButtonText}>Filters</Text>
+            {activeFilterCount > 0 && (
+              <View style={styles.filtersBadge}>
+                <Text style={styles.filtersBadgeText}>{activeFilterCount}</Text>
+              </View>
+            )}
           </Pressable>
         </View>
 
@@ -491,21 +534,120 @@ export function HomeMapScreen({ navigation }: Props) {
           </Pressable>
         </SafeAreaView>
       </Modal>
+
+      <Modal
+        visible={filtersModalVisible}
+        transparent
+        animationType="slide"
+        onRequestClose={() => setFiltersModalVisible(false)}
+      >
+        <Pressable style={styles.modalBackdrop} onPress={() => setFiltersModalVisible(false)} />
+        <SafeAreaView style={styles.modalSheet} edges={['bottom']}>
+          <View style={styles.filtersModalHeader}>
+            <Text style={styles.modalTitle}>Filters</Text>
+            {activeFilterCount > 0 && (
+              <Pressable onPress={clearAllFilters} hitSlop={8}>
+                <Text style={styles.clearAllText}>Clear all</Text>
+              </Pressable>
+            )}
+          </View>
+
+          <ScrollView showsVerticalScrollIndicator={false} style={styles.filtersScroll}>
+            <Text style={styles.modalSectionLabel}>Sort By</Text>
+            <View style={styles.optionRow}>
+              <SelectableChip
+                label="Nearest"
+                active={sortMode === 'distance'}
+                onPress={() => setSortMode('distance')}
+              />
+              <SelectableChip
+                label="Top Rated"
+                active={sortMode === 'rating'}
+                onPress={() => setSortMode('rating')}
+              />
+            </View>
+
+            <Text style={styles.modalSectionLabel}>Budget</Text>
+            <View style={styles.optionRow}>
+              <SelectableChip
+                label="Any"
+                active={filters.budgetBucket === null}
+                onPress={() => setBudgetBucket(null)}
+              />
+              {BUDGET_BUCKETS.map((bucket) => (
+                <SelectableChip
+                  key={bucket.key}
+                  label={bucket.label}
+                  active={filters.budgetBucket === bucket.key}
+                  onPress={() => setBudgetBucket(bucket.key)}
+                />
+              ))}
+            </View>
+
+            <Text style={styles.modalSectionLabel}>Amenities</Text>
+            <View style={styles.optionRow}>
+              {AMENITY_SELECTOR_KEYS.map((key) => (
+                <SelectableChip
+                  key={key}
+                  label={AMENITIES[key].label}
+                  icon={AMENITIES[key].icon}
+                  active={filters.amenities.includes(key)}
+                  onPress={() => toggleAmenity(key)}
+                />
+              ))}
+            </View>
+
+            <Text style={styles.modalSectionLabel}>Vehicle Type</Text>
+            <View style={styles.optionRow}>
+              {VEHICLE_OPTIONS.map((option) => (
+                <SelectableChip
+                  key={option.label}
+                  label={option.label}
+                  active={filters.vehicleType === option.key}
+                  onPress={() => setVehicleType(option.key)}
+                />
+              ))}
+            </View>
+
+            <View style={{ height: spacing.md }} />
+          </ScrollView>
+
+          <Button
+            label={`Show ${filteredListings.length} Spot${filteredListings.length === 1 ? '' : 's'}`}
+            onPress={() => setFiltersModalVisible(false)}
+            style={styles.filtersApplyButton}
+          />
+        </SafeAreaView>
+      </Modal>
     </View>
   );
 }
 
-function FilterChip({
+/** A single tappable option inside the Filters sheet — used for both
+ * single-select rows (Sort By, Budget, Vehicle Type — the caller is
+ * responsible for only letting one be active at a time) and multi-select
+ * rows (Amenities — each toggles independently). */
+function SelectableChip({
   label,
+  icon,
   active,
   onPress,
 }: {
   label: string;
+  icon?: string;
   active: boolean;
   onPress: () => void;
 }) {
   return (
     <Pressable onPress={onPress} style={[styles.chip, active && styles.chipActive]}>
+      {icon && (
+        <Ionicons
+          name={icon as keyof typeof Ionicons.glyphMap}
+          size={14}
+          color={active ? colors.textOnPrimary : colors.textSecondary}
+          style={styles.chipIcon}
+        />
+      )}
       <Text style={[styles.chipLabel, active && styles.chipLabelActive]}>{label}</Text>
     </Pressable>
   );
@@ -568,13 +710,9 @@ const styles = StyleSheet.create({
     color: colors.textOnPrimary,
     fontFamily: typography.bodyMedium.fontFamily,
   },
-  chipsRow: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: spacing.xs,
-    marginTop: spacing.sm,
-  },
   chip: {
+    flexDirection: 'row',
+    alignItems: 'center',
     backgroundColor: colors.surface,
     borderWidth: 1,
     borderColor: colors.surfaceBorder,
@@ -585,6 +723,9 @@ const styles = StyleSheet.create({
   chipActive: {
     backgroundColor: colors.primary,
     borderColor: colors.primary,
+  },
+  chipIcon: {
+    marginRight: 4,
   },
   chipLabel: {
     ...typography.caption,
@@ -651,14 +792,37 @@ const styles = StyleSheet.create({
     ...typography.h3,
     color: colors.textPrimary,
   },
-  sortToggle: {
+  filtersButton: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 4,
+    backgroundColor: colors.surfaceElevated,
+    borderWidth: 1,
+    borderColor: colors.surfaceBorder,
+    borderRadius: radius.full,
+    paddingVertical: 6,
+    paddingHorizontal: spacing.sm,
   },
-  sortToggleText: {
+  filtersButtonText: {
     ...typography.caption,
-    color: colors.textSecondary,
+    color: colors.textPrimary,
+    fontFamily: typography.bodyMedium.fontFamily,
+  },
+  filtersBadge: {
+    minWidth: 16,
+    height: 16,
+    borderRadius: 8,
+    paddingHorizontal: 4,
+    backgroundColor: colors.primary,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  filtersBadgeText: {
+    ...typography.caption,
+    fontSize: 10,
+    lineHeight: 12,
+    color: colors.textOnPrimary,
+    fontFamily: typography.bodyMedium.fontFamily,
   },
   listContent: {
     paddingHorizontal: spacing.md,
@@ -688,6 +852,7 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: colors.surfaceBorder,
     padding: spacing.md,
+    maxHeight: '88%',
   },
   modalTitle: {
     ...typography.h2,
@@ -699,6 +864,27 @@ const styles = StyleSheet.create({
     color: colors.textSecondary,
     marginBottom: spacing.sm,
     marginTop: spacing.sm,
+  },
+  filtersModalHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  clearAllText: {
+    ...typography.caption,
+    color: colors.primary,
+    fontFamily: typography.bodyMedium.fontFamily,
+  },
+  filtersScroll: {
+    maxHeight: FILTERS_SCROLL_MAX_HEIGHT,
+  },
+  optionRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: spacing.xs,
+  },
+  filtersApplyButton: {
+    marginTop: spacing.md,
   },
   modalDateRow: {
     marginBottom: spacing.sm,

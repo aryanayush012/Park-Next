@@ -1,0 +1,15 @@
+-- ParkNext — 0010: add 'expired' to booking_status
+--
+-- A `pending` request the owner never Accepted/Declined within their
+-- response window (see src/utils/responseDeadline.ts) — kept distinct from
+-- `declined` (an active owner decision) purely so the renter can be told
+-- the real reason ("the host didn't respond in time" vs. "the host said
+-- no").
+--
+-- Run this file BY ITSELF, before 0011 — Postgres doesn't allow a newly
+-- added enum value to be referenced (e.g. in a constraint's WHERE clause)
+-- within the same transaction that added it. Pasting/running each numbered
+-- migration file separately into the SQL Editor (as the README already has
+-- you do) naturally gives each one its own transaction, so this only
+-- matters if you're combining migration files by hand.
+alter type public.booking_status add value 'expired';

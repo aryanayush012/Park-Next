@@ -17,8 +17,15 @@ export interface ScheduleSelection {
 export type RootStackParamList = {
   Splash: undefined;
   Onboarding: undefined;
-  SignUpEmail: undefined;
-  EmailOTP: { email: string };
+  SignIn: undefined;
+  SignUp: undefined;
+  ForgotPasswordEmail: undefined;
+  ForgotPasswordOTP: { email: string };
+  /** Reachable only while `isPasswordRecovery` is set — see the comment on
+   * that flag in `AuthContext.tsx`. Not part of the normal signed-out
+   * stack's flow between screens, so it takes no params of its own. */
+  ResetPassword: undefined;
+  CompleteProfile: undefined;
   Main: undefined;
 };
 

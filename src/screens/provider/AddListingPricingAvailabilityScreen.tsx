@@ -4,12 +4,10 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { Button } from '../../components/Button';
-import { SegmentedControl } from '../../components/SegmentedControl';
 import { Stepper } from '../../components/Stepper';
 import { colors, radius, spacing, typography } from '../../theme';
 import { ProviderListingsStackParamList } from '../../navigation/types';
 import { formatHHmm, formatWeekdayList, toHHmm, WEEKDAY_LABELS } from '../../utils/format';
-import { PricingModel } from '../../types';
 
 type Props = NativeStackScreenProps<ProviderListingsStackParamList, 'AddListingPricingAvailability'>;
 
@@ -30,15 +28,17 @@ function minutesToHHmm(minutes: number): string {
   return toHHmm(Math.floor(minutes / 60), minutes % 60);
 }
 
-const PRICING_OPTIONS: { value: PricingModel; label: string }[] = [
-  { value: 'flat', label: 'Flat Hourly Rate' },
-  { value: 'metered', label: 'Metered Rate' },
-];
-
 export function AddListingPricingAvailabilityScreen({ navigation, route }: Props) {
   const { draft, editingListingId } = route.params;
 
-  const [pricingModel, setPricingModel] = useState<PricingModel>(draft.pricingModel);
+  // Every listing is owner-set flat-rate pricing — there is no metered
+  // option any more (renters always see a fixed rate the owner decided,
+  // never a running meter). `pricingModel` stays `'flat'` unconditionally;
+  // it's still threaded through the draft/create-input shape below so
+  // `PricingModel` (kept as a type for backward-compatible display of any
+  // pre-existing metered listings/bookings) doesn't need touching anywhere
+  // else.
+  const pricingModel = 'flat' as const;
   const [priceText, setPriceText] = useState(String(draft.pricePerHour));
   const [selectedDays, setSelectedDays] = useState<Set<number>>(new Set(draft.availableDays));
   const [fromMinutes, setFromMinutes] = useState(hhmmToMinutes(draft.availableFrom));
@@ -92,8 +92,10 @@ export function AddListingPricingAvailabilityScreen({ navigation, route }: Props
       </View>
 
       <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
-        <Text style={styles.sectionTitle}>Pricing Type</Text>
-        <SegmentedControl options={PRICING_OPTIONS} value={pricingModel} onChange={setPricingModel} />
+        <Text style={styles.sectionTitle}>Pricing</Text>
+        <Text style={styles.sectionSubtitle}>
+          You set a flat hourly rate — renters always know the full cost upfront.
+        </Text>
 
         <View style={styles.priceBox}>
           <Text style={styles.currencySymbol}>₹</Text>
@@ -203,6 +205,12 @@ const styles = StyleSheet.create({
     color: colors.textPrimary,
     marginTop: spacing.lg,
     marginBottom: spacing.sm,
+  },
+  sectionSubtitle: {
+    ...typography.caption,
+    color: colors.textMuted,
+    marginTop: -spacing.xs,
+    marginBottom: spacing.xs,
   },
   priceBox: {
     flexDirection: 'row',

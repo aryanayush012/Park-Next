@@ -7,8 +7,10 @@ import { ListingCard } from '../../components/ListingCard';
 import { SegmentedControl } from '../../components/SegmentedControl';
 import { colors, spacing, typography } from '../../theme';
 import { RenterBookingsStackParamList } from '../../navigation/types';
-import { dataSource, CURRENT_USER_ID } from '../../data/dataSource';
+import { dataSource } from '../../data/dataSource';
 import { AMENITIES } from '../../data/mockData';
+import { useAuth } from '../../navigation/AuthContext';
+import { useRealtimeTable } from '../../hooks/useRealtimeTable';
 import { bookingStatusToBadgeStatus, formatDateTimeRange } from '../../utils/format';
 import { Booking, Listing } from '../../types';
 
@@ -22,12 +24,13 @@ interface JoinedBooking {
 type Tab = 'upcoming' | 'past';
 
 export function MyBookingsScreen({ navigation }: Props) {
+  const { userId } = useAuth();
   const [tab, setTab] = useState<Tab>('upcoming');
   const [items, setItems] = useState<JoinedBooking[]>([]);
   const [isLoading, setIsLoading] = useState(true);
 
   const load = useCallback(async () => {
-    const bookings = await dataSource.getBookingsForUser(CURRENT_USER_ID);
+    const bookings = await dataSource.getBookingsForUser(userId);
     const joined = await Promise.all(
       bookings.map(async (booking) => {
         const listing = await dataSource.getListingById(booking.listingId);
@@ -36,7 +39,7 @@ export function MyBookingsScreen({ navigation }: Props) {
     );
     setItems(joined.filter((item): item is JoinedBooking => item !== null));
     setIsLoading(false);
-  }, []);
+  }, [userId]);
 
   useEffect(() => {
     load();
@@ -50,17 +53,33 @@ export function MyBookingsScreen({ navigation }: Props) {
     }, [load])
   );
 
+  // Once Supabase is connected, a status change made from the provider
+  // side (accept/decline, arrival confirmed) on a different device shows
+  // up here live instead of waiting for this screen to regain focus — a
+  // no-op in mock mode. See `src/hooks/useRealtimeTable.ts`.
+  useRealtimeTable('bookings', load);
+
   const upcoming = items.filter(
-    ({ booking }) => booking.status === 'booked' || booking.status === 'in_progress'
+    ({ booking }) =>
+      booking.status === 'pending' || booking.status === 'booked' || booking.status === 'in_progress'
   );
   const past = items.filter(
-    ({ booking }) => booking.status === 'completed' || booking.status === 'cancelled'
+    ({ booking }) =>
+      booking.status === 'completed' ||
+      booking.status === 'cancelled' ||
+      booking.status === 'declined' ||
+      booking.status === 'expired'
   );
   const visible = tab === 'upcoming' ? upcoming : past;
 
   const handlePress = ({ booking }: JoinedBooking) => {
     if (tab === 'upcoming') {
-      if (booking.status === 'in_progress') {
+      // `booked` (accepted, not yet checked in) and `in_progress` both belong
+      // on Active Booking — that's the screen that actually shows the
+      // arrival code / live countdown and the rest of the booking's detail.
+      // Only a still-`pending` request has nothing to show there yet, so it
+      // goes to Booking Confirmation's waiting-for-approval state instead.
+      if (booking.status === 'booked' || booking.status === 'in_progress') {
         navigation.navigate('ActiveBooking', { bookingId: booking.id });
       } else {
         navigation.navigate('BookingConfirmation', { bookingId: booking.id, justBooked: false });
@@ -105,6 +124,15 @@ export function MyBookingsScreen({ navigation }: Props) {
               ratingCount={item.listing.ratingCount}
               status={bookingStatusToBadgeStatus(item.booking.status)}
               amenities={item.listing.amenities.map((key) => AMENITIES[key])}
+              // `ListingCard` is itself a `Pressable` internally. Nesting it
+              // inside this screen's own `Pressable` without also giving it
+              // an `onPress` meant taps landing on the card's photo/content
+              // area were captured (and silently dropped) by this inert
+              // inner `Pressable` before ever reaching the outer one — the
+              // reported "tapping the card does nothing" bug. Wiring the
+              // same handler here means a tap anywhere on the card fires it
+              // regardless of which of the two `Pressable`s claims it.
+              onPress={() => handlePress(item)}
             />
             <View style={styles.scheduleRow}>
               <Text style={styles.scheduleText}>

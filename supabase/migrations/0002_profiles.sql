@@ -29,23 +29,13 @@ create policy "profiles_update_own"
   with check (auth.uid() = id);
 
 -- Renters need to see a listing owner's name; owners need to see a renter's
--- name/rating on a booking request — i.e. "public read of name/avatar" from
--- the brief. Postgres RLS filters *rows*, not *columns*, and PostgREST's
--- automatic relationship embedding (e.g. `bookings.select('*, renter:profiles(name)')`)
--- only works against a table/view that is itself directly selectable under
--- the caller's RLS — a column-limited public view can't be embedded via the
--- bookings->profiles foreign key the same way. Given this app has no
--- passwords or payment data, and every reader is already a signed-in user
--- (never anonymous), the pragmatic trade-off used here — same one Supabase's
--- own docs use for this exact "public profile" scenario — is: any
--- *authenticated* user (not anonymous/public internet) can read any profile
--- row. Email/phone become technically visible to other signed-in users this
--- way; tighten this to a dedicated `id, name, avatar_url` view (see comment
--- in 0003) before a real launch if that's not acceptable.
-create policy "profiles_select_authenticated"
-  on public.profiles for select
-  to authenticated
-  using (true);
+-- name/rating on a booking request. This started out as a blanket "any
+-- signed-in user can read any profile row" policy (the pragmatic V1
+-- trade-off, since Postgres RLS filters rows, not columns) — **tightened in
+-- migration 0012** to only grant that visibility when a real booking
+-- actually connects the two people, closing the gap where email/phone were
+-- technically readable by any authenticated stranger. See 0012 for the
+-- current policy and the reasoning; this comment is kept for history.
 
 -- Auto-create a profile row the moment someone finishes email OTP sign-up.
 create function public.handle_new_user()

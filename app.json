@@ -37,7 +37,8 @@
       [
         "expo-image-picker",
         {
-          "photosPermission": "ParkNext uses your photo library so you can add photos to your parking listing."
+          "photosPermission": "ParkNext uses your photo library so you can add photos to your parking listing or profile.",
+          "cameraPermission": "ParkNext uses your camera so you can take photos for your parking listing or profile."
         }
       ],
       [
