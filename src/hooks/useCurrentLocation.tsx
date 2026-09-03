@@ -137,7 +137,7 @@ export function useCurrentLocation(): CurrentLocationState {
           setReason(canAskAgain ? 'permission_denied' : 'permission_needs_settings');
           setError(
             canAskAgain
-              ? 'Location permission denied — showing a sample location instead.'
+              ? 'Location permission denied '
               : 'Location permission denied — enable it in Settings to use your real location.'
           );
           setLoading(false);
@@ -151,7 +151,7 @@ export function useCurrentLocation(): CurrentLocationState {
           setLocation(MOCK_CURRENT_LOCATION);
           setSource('mock');
           setReason('services_disabled');
-          setError('Location services are turned off on this device — showing a sample location instead.');
+          setError('Location');
           setLoading(false);
         }
         return;

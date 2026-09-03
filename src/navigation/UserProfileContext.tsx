@@ -1,6 +1,7 @@
 import React, { createContext, useContext, useEffect, useMemo, useState } from 'react';
 import { CURRENT_USER_ID, MOCK_RENTERS } from '../data/mockData';
 import { isSupabaseConfigured, supabase } from '../data/supabaseClient';
+import { uploadAvatarPhoto } from '../utils/photoUpload';
 import { useAuth } from './AuthContext';
 
 interface ProfileUpdates {
@@ -101,24 +102,39 @@ export function UserProfileProvider({ children }: { children: React.ReactNode })
       updateProfile: (updates) => {
         if (updates.name !== undefined) setName(updates.name);
         if (updates.phone !== undefined) setPhone(updates.phone);
+        // Shown immediately from the local device URI the picker just
+        // returned, for instant feedback — swapped for the real uploaded
+        // URL below once that finishes, without making the person wait to
+        // see their new photo at all.
         if (updates.avatarUrl !== undefined) setAvatarUrl(updates.avatarUrl);
 
         if (isSupabaseConfigured) {
           if (!userId) return;
-          const dbUpdates: Record<string, string | null> = {};
-          if (updates.name !== undefined) dbUpdates.name = updates.name;
-          if (updates.phone !== undefined) dbUpdates.phone = updates.phone;
-          if (updates.avatarUrl !== undefined) dbUpdates.avatar_url = updates.avatarUrl;
-          supabase
-            .from('profiles')
-            .update(dbUpdates)
-            .eq('id', userId)
-            .then(({ error }) => {
+          (async () => {
+            try {
+              const dbUpdates: Record<string, string | null> = {};
+              if (updates.name !== undefined) dbUpdates.name = updates.name;
+              if (updates.phone !== undefined) dbUpdates.phone = updates.phone;
+              if (updates.avatarUrl !== undefined) {
+                // Real Storage URL, not the device-local `file://...` URI the
+                // picker hands back — see `src/utils/photoUpload.ts`.
+                const uploadedUrl = await uploadAvatarPhoto(updates.avatarUrl, userId);
+                dbUpdates.avatar_url = uploadedUrl;
+                setAvatarUrl(uploadedUrl);
+              }
+              const { error } = await supabase.from('profiles').update(dbUpdates).eq('id', userId);
               if (error) {
                 // eslint-disable-next-line no-console
                 console.warn('[ParkNext] Failed to save profile updates:', error.message);
               }
-            });
+            } catch (err) {
+              // eslint-disable-next-line no-console
+              console.warn(
+                '[ParkNext] Failed to upload avatar photo:',
+                err instanceof Error ? err.message : err
+              );
+            }
+          })();
           return;
         }
 
@@ -135,16 +151,26 @@ export function UserProfileProvider({ children }: { children: React.ReactNode })
 
         if (isSupabaseConfigured) {
           if (!userId) return;
-          supabase
-            .from('profiles')
-            .update({ name: details.name, phone: details.phone, avatar_url: details.avatarUrl ?? null })
-            .eq('id', userId)
-            .then(({ error }) => {
+          (async () => {
+            try {
+              const uploadedUrl = await uploadAvatarPhoto(details.avatarUrl ?? null, userId);
+              setAvatarUrl(uploadedUrl);
+              const { error } = await supabase
+                .from('profiles')
+                .update({ name: details.name, phone: details.phone, avatar_url: uploadedUrl })
+                .eq('id', userId);
               if (error) {
                 // eslint-disable-next-line no-console
                 console.warn('[ParkNext] Failed to save profile:', error.message);
               }
-            });
+            } catch (err) {
+              // eslint-disable-next-line no-console
+              console.warn(
+                '[ParkNext] Failed to upload avatar photo:',
+                err instanceof Error ? err.message : err
+              );
+            }
+          })();
           return;
         }
 

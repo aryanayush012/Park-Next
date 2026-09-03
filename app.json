@@ -14,13 +14,19 @@
       "backgroundColor": "#0B0D12"
     },
     "android": {
+      "package": "com.parknext.app",
       "adaptiveIcon": {
         "backgroundColor": "#0B0D12",
         "foregroundImage": "./assets/android-icon-foreground.png",
         "backgroundImage": "./assets/android-icon-background.png",
         "monochromeImage": "./assets/android-icon-monochrome.png"
       },
-      "predictiveBackGestureEnabled": false
+      "predictiveBackGestureEnabled": false,
+      "permissions": [
+        "android.permission.RECORD_AUDIO",
+        "android.permission.ACCESS_COARSE_LOCATION",
+        "android.permission.ACCESS_FINE_LOCATION"
+      ]
     },
     "web": {
       "favicon": "./assets/favicon.png"
@@ -47,7 +53,14 @@
           "locationWhenInUsePermission": "ParkNext uses your location to find nearby parking spots and center the map on where you are."
         }
       ],
-      ["expo-notifications"]
-    ]
+      [
+        "expo-notifications"
+      ]
+    ],
+    "extra": {
+      "eas": {
+        "projectId": "257aaa0a-75a0-4f21-b77b-892b40190879"
+      }
+    }
   }
 }

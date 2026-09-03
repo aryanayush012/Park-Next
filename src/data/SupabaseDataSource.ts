@@ -16,6 +16,7 @@ import {
 } from '../types';
 import type { DataSource } from './dataSource';
 import { computeResponseDeadline } from '../utils/responseDeadline';
+import { uploadListingPhotos } from '../utils/photoUpload';
 
 /**
  * Real-backend implementation of `DataSource`, talking to the Supabase
@@ -268,10 +269,17 @@ export class SupabaseDataSource implements DataSource {
   }
 
   async createListing(input: CreateListingInput): Promise<Listing> {
+    // Real Storage URLs, not the device-local `file://...` URIs the photo
+    // picker hands back — see `src/utils/photoUpload.ts` for why this
+    // matters (those local paths only ever resolved on the phone that took
+    // them). Uploaded to a folder keyed by the owner's own auth id, matching
+    // the Storage RLS policies in `0013_storage_buckets.sql`.
+    const photos = await uploadListingPhotos(input.photos, input.ownerId);
+
     const { data, error } = await supabase
       .from('listings')
       .insert({
-        ...listingInputToRow(input),
+        ...listingInputToRow({ ...input, photos }),
         is_active: true,
         // Only reachable after the Review & Publish screen's required
         // confirmation checkbox has been checked — see ListingReviewPublishScreen.
@@ -284,7 +292,18 @@ export class SupabaseDataSource implements DataSource {
   }
 
   async updateListing(id: string, updates: Partial<CreateListingInput>): Promise<Listing> {
-    const patch: Record<string, unknown> = { ...listingInputToRow(updates as CreateListingInput) };
+    // Same upload step as createListing — an edit can mix already-uploaded
+    // photos (left untouched) with newly-added local ones. Falls back to the
+    // listing's own id as the folder name in the (currently never hit, since
+    // ListingReviewPublishScreen always passes a full CreateListingInput
+    // either way) case an update doesn't carry ownerId.
+    const photos =
+      updates.photos !== undefined
+        ? await uploadListingPhotos(updates.photos, updates.ownerId ?? id)
+        : undefined;
+    const patch: Record<string, unknown> = {
+      ...listingInputToRow({ ...updates, photos: photos ?? updates.photos } as CreateListingInput),
+    };
     // `listingInputToRow` assumes every field is present (full create); for a
     // partial update, only forward fields the caller actually provided.
     Object.keys(patch).forEach((key) => {

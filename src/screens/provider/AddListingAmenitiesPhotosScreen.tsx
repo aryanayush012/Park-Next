@@ -84,7 +84,6 @@ export function AddListingAmenitiesPhotosScreen({ navigation, route }: Props) {
         </View>
 
         <Text style={styles.sectionTitle}>Photos</Text>
-        <Text style={styles.noticeText}>Photos only — video uploads are not supported.</Text>
 
         <View style={styles.photoGrid}>
           {photos.map((uri) => (

@@ -385,10 +385,9 @@ export function HomeMapScreen({ navigation }: Props) {
             onPress={locationNeedsSettings ? openLocationSettings : refreshLocation}
             hitSlop={4}
           >
-            <Ionicons name="location-outline" size={13} color={colors.textSecondary} />
+            <Ionicons name="location-outline" size={23} color={colors.textSecondary} />
             <Text style={styles.locationNoticeText}>
-              {locationError ?? 'Showing a sample location.'}{' '}
-              {locationNeedsSettings ? 'Tap to open Settings.' : 'Tap to retry.'}
+              {locationNeedsSettings ? `Tap to Fetch ${locationError}` : 'Tap to retry.'}
             </Text>
           </Pressable>
         )}
@@ -745,7 +744,7 @@ const styles = StyleSheet.create({
     borderColor: colors.surfaceBorder,
     borderRadius: radius.full,
     paddingHorizontal: spacing.sm,
-    paddingVertical: 6,
+    paddingVertical: 19,
     marginTop: spacing.sm,
     maxWidth: '92%',
   },

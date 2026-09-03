@@ -98,6 +98,16 @@ export function AddListingDetailsScreen({ navigation, route }: Props) {
         ref={scrollRef}
         contentContainerStyle={styles.scrollContent}
         showsVerticalScrollIndicator={false}
+        // Without this, a ScrollView's default behaviour is to eat the
+        // *first* tap on anything inside it just to dismiss the keyboard —
+        // so tapping a suggestion row while the Address field is still
+        // focused only closed the keyboard, never actually selected it,
+        // and a second tap was needed. "handled" lets a touchable that
+        // handles its own press (our suggestion Pressables) fire on the
+        // very first tap, keyboard open or not; the manual onBlur delay
+        // above stays too, since a suggestion tap still blurs the input a
+        // beat before its own onPress resolves.
+        keyboardShouldPersistTaps="handled"
       >
         <TextField
           label="Listing Title"
