@@ -19,19 +19,19 @@ export const AMENITY_SELECTOR_KEYS: AmenityKey[] = ['ev_charging', 'covered', 'c
  * their latest self-reported details.
  */
 export const MOCK_RENTERS: Record<string, RenterProfile> = {
-  u9: { id: 'u9', name: 'You', rating: 4.8, phone: '+919876500009' },
-  u10: { id: 'u10', name: 'Rohit Verma', rating: 4.5, phone: '+919876500010' },
-  u11: { id: 'u11', name: 'Sneha Iyer', rating: 4.6, phone: '+919876500011' },
-  u12: { id: 'u12', name: 'Ananya Rao', rating: 4.9, phone: '+919876500012' },
-  u13: { id: 'u13', name: 'Vikram Singh', rating: 4.6, phone: '+919876500013' },
-  u14: { id: 'u14', name: 'Priya Menon', rating: 4.8, phone: '+919876500014' },
-  u15: { id: 'u15', name: 'Farhan Khan', rating: 4.7, phone: '+919876500015' },
+  u9: { id: 'u9', name: 'You', rating: 4.8, ratingCount: 12, phone: '+919876500009' },
+  u10: { id: 'u10', name: 'Rohit Verma', rating: 4.5, ratingCount: 8, phone: '+919876500010' },
+  u11: { id: 'u11', name: 'Sneha Iyer', rating: 4.6, ratingCount: 15, phone: '+919876500011' },
+  u12: { id: 'u12', name: 'Ananya Rao', rating: 4.9, ratingCount: 23, phone: '+919876500012' },
+  u13: { id: 'u13', name: 'Vikram Singh', rating: 4.6, ratingCount: 6, phone: '+919876500013' },
+  u14: { id: 'u14', name: 'Priya Menon', rating: 4.8, ratingCount: 19, phone: '+919876500014' },
+  u15: { id: 'u15', name: 'Farhan Khan', rating: 4.7, ratingCount: 11, phone: '+919876500015' },
   // Owners of the listings that belong to someone other than the current
   // user (l2, l4, l6) — needed so a renter booking one of those spots has
   // someone to look up for the "Contact Host" card.
-  u2: { id: 'u2', name: 'Anil Kumar', rating: 4.7, phone: '+919876500002' },
-  u4: { id: 'u4', name: 'Deepa Nair', rating: 4.6, phone: '+919876500004' },
-  u6: { id: 'u6', name: 'Karthik Reddy', rating: 4.5, phone: '+919876500006' },
+  u2: { id: 'u2', name: 'Anil Kumar', rating: 4.7, ratingCount: 27, phone: '+919876500002' },
+  u4: { id: 'u4', name: 'Deepa Nair', rating: 4.6, ratingCount: 9, phone: '+919876500004' },
+  u6: { id: 'u6', name: 'Karthik Reddy', rating: 4.5, ratingCount: 14, phone: '+919876500006' },
 };
 
 export const AMENITIES: Record<AmenityKey, Amenity> = {

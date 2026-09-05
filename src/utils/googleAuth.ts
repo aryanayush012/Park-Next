@@ -1,3 +1,4 @@
+import { Platform } from 'react-native';
 import * as WebBrowser from 'expo-web-browser';
 import { makeRedirectUri } from 'expo-auth-session';
 import { getQueryParams } from 'expo-auth-session/build/QueryParams';
@@ -21,10 +22,8 @@ export type GoogleSignInResult =
  * to redirect a (nonexistent, in React Native) browser window itself
  * (`skipBrowserRedirect`), open that URL in a real system browser tab via
  * `expo-web-browser` so the OS can hand the eventual redirect back to this
- * exact app via its own URL scheme (`app.json`'s `"scheme": "parknext"`,
- * resolved automatically by `makeRedirectUri()` — this also transparently
- * does the right thing when testing in Expo Go, where there's no custom
- * scheme yet), then parse the access/refresh tokens Supabase appended to
+ * exact app via its own URL scheme (`GOOGLE_REDIRECT_URI` below), then
+ * parse the access/refresh tokens Supabase appended to
  * that redirect URL and hand them to the client with `setSession` — no
  * server-side code needed on this app's side at all.
  *
@@ -34,16 +33,29 @@ export type GoogleSignInResult =
  * done, it just can't succeed yet; Supabase's own error message
  * (surfaced via the `'error'` status below) will say so either way.
  */
+/**
+ * Where Supabase sends the browser back to once Google is done. Must match an
+ * entry in Authentication → URL Configuration → Redirect URLs *exactly*, or
+ * Supabase ignores it and falls back to the project's Site URL — the
+ * "localhost:3000 refused to connect" tab.
+ *
+ * A fixed string on native rather than `makeRedirectUri()` on purpose: inside
+ * a development build that helper splices the Metro dev-server host into the
+ * URL (`parknext://192.168.1.7:8081`), which changes with your LAN IP and
+ * port, so it can never be allowlisted. Hard-coding the app's own scheme
+ * (`app.json`'s `"scheme": "parknext"`) makes the value identical across dev,
+ * preview and production builds, so it only has to be added once.
+ *
+ * Consequence: Google sign-in needs a real build — it cannot work in Expo Go,
+ * which can't own the `parknext://` scheme.
+ */
+export const GOOGLE_REDIRECT_URI = 'parknext://auth-callback';
+
 export async function signInWithGoogle(): Promise<GoogleSignInResult> {
-  const redirectTo = makeRedirectUri();
+  // Web has no custom scheme; there the computed origin-based URL is right.
+  const redirectTo = Platform.OS === 'web' ? makeRedirectUri() : GOOGLE_REDIRECT_URI;
 
   if (__DEV__) {
-    // If Google sign-in ends with the browser tab showing something like
-    // "localhost:3000 refused to connect", it means Supabase couldn't match
-    // this exact URL against Authentication → URL Configuration → Redirect
-    // URLs, so it fell back to the project's default Site URL instead
-    // (localhost:3000) — copy the value logged here and add it there
-    // (or a wildcard covering it, e.g. `exp://**` for Expo Go) and try again.
     // eslint-disable-next-line no-console
     console.log('[ParkNext] Google sign-in redirectTo:', redirectTo);
   }

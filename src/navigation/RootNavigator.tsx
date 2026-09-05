@@ -4,9 +4,11 @@ import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { RootStackParamList } from './types';
 import { AuthProvider, useAuth } from './AuthContext';
 import { RoleProvider } from './RoleContext';
-import { UserProfileProvider, useUserProfile } from './UserProfileContext';
+import { UserProfileProvider } from './UserProfileContext';
 import { MainNavigator } from './MainNavigator';
 import { colors } from '../theme';
+import { LanguageProvider } from '../i18n';
+import { usePushBookingRequests } from '../hooks/usePushBookingRequests';
 import {
   SplashScreen,
   OnboardingScreen,
@@ -15,33 +17,34 @@ import {
   ForgotPasswordEmailScreen,
   ForgotPasswordOTPScreen,
   ResetPasswordScreen,
-  CompleteProfileScreen,
 } from '../screens/auth';
 
 const Stack = createNativeStackNavigator<RootStackParamList>();
 
 export function RootNavigator() {
   return (
-    <AuthProvider>
-      <UserProfileProvider>
+    <LanguageProvider>
+      <AuthProvider>
+        <UserProfileProvider>
         <RoleProvider>
           <RootNavigatorInner />
         </RoleProvider>
-      </UserProfileProvider>
-    </AuthProvider>
+        </UserProfileProvider>
+      </AuthProvider>
+    </LanguageProvider>
   );
 }
 
 /**
- * Conditionally renders one of four screen sets based on `isPasswordRecovery`,
- * `isSignedIn`, and `isProfileComplete` — the standard React Navigation "auth
- * flow" pattern, extended with two special-case in-between steps. Switching
+ * Conditionally renders one of three screen sets based on `isPasswordRecovery`
+ * and `isSignedIn` — the standard React Navigation "auth flow" pattern, with
+ * one special-case in-between step. Switching
  * which set is registered (rather than just navigating within one fixed set)
  * is what makes a real Supabase sign-out — which flips `isSignedIn` from
  * outside any screen's own navigation calls, via `onAuthStateChange` —
- * reliably land back on Splash, and what lets an already-signed-in user (with
- * an already-complete profile) skip straight past Splash/Onboarding/sign-in
- * on a cold start once a real session exists.
+ * reliably land back on Splash, and what lets an already-signed-in user skip
+ * straight past Splash/Onboarding/sign-in on a cold start once a real session
+ * exists.
  *
  * `isPasswordRecovery` is checked *first*, ahead of `isSignedIn` — a
  * password-reset code verifying successfully establishes a real (if
@@ -50,16 +53,18 @@ export function RootNavigator() {
  * instead of letting them set a new one. See the comment on that flag in
  * `AuthContext.tsx` for the full reasoning.
  *
- * A signed-in user whose profile isn't complete yet — a brand-new account, by
- * any sign-in path — always lands on Complete Your Profile instead of Main,
- * with no way to navigate around it, until `completeProfile()` flips
- * `isProfileComplete` to `true`. In mock mode this is invisible: `isSignedIn`
- * starts `false` and flips to `true` the same way it always effectively did,
- * just via `signInMock()` instead of a manual `navigation.reset(...)`.
+ * Signing in now goes straight to Main. There used to be a mandatory
+ * Complete Your Profile step in between, collecting a name and mobile number
+ * from every new account before it could reach the app at all. The number is
+ * instead asked for at the point it's actually needed — confirming a booking
+ * or publishing a listing — by `PhoneRequiredDialog`.
  */
 function RootNavigatorInner() {
   const { isReady, isSignedIn, isPasswordRecovery } = useAuth();
-  const { isProfileComplete } = useUserProfile();
+
+  // Owner-side push: registers this device for booking requests and
+  // performs Accept / Decline taken straight from the notification.
+  usePushBookingRequests();
 
   if (!isReady) {
     // Only reachable with Supabase configured, and only for the brief
@@ -75,10 +80,8 @@ function RootNavigatorInner() {
     <Stack.Navigator screenOptions={{ headerShown: false }}>
       {isPasswordRecovery ? (
         <Stack.Screen name="ResetPassword" component={ResetPasswordScreen} />
-      ) : isSignedIn && isProfileComplete ? (
-        <Stack.Screen name="Main" component={MainNavigator} />
       ) : isSignedIn ? (
-        <Stack.Screen name="CompleteProfile" component={CompleteProfileScreen} />
+        <Stack.Screen name="Main" component={MainNavigator} />
       ) : (
         <>
           <Stack.Screen name="Splash" component={SplashScreen} />

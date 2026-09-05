@@ -17,6 +17,7 @@ import { Button } from '../../components/Button';
 import { AmenityBadge } from '../../components/AmenityBadge';
 import { StarRating } from '../../components/StarRating';
 import { MapView } from '../../components/MapView';
+import { useTranslation } from '../../i18n';
 import { colors, radius, spacing, typography } from '../../theme';
 import { RenterHomeStackParamList } from '../../navigation/types';
 import { dataSource } from '../../data/dataSource';
@@ -30,6 +31,7 @@ const { width: SCREEN_WIDTH } = Dimensions.get('window');
 const GALLERY_HEIGHT = 320;
 
 export function ListingDetailScreen({ navigation, route }: Props) {
+  const { t } = useTranslation();
   const { listingId, defaultBookingType, schedule } = route.params;
   const [listing, setListing] = useState<Listing | null>(null);
   const [photoIndex, setPhotoIndex] = useState(0);
@@ -51,8 +53,8 @@ export function ListingDetailScreen({ navigation, route }: Props) {
   const days = useMemo(() => nextDays(7), []);
 
   const scheduleSummary = useMemo(() => {
-    if (bookingType === 'instant') return 'Starts now';
-    if (!schedule) return 'Pick a date & time on the next step';
+    if (bookingType === 'instant') return t('detail.startsNow');
+    if (!schedule) return t('detail.pickDateTime');
     const date = days[schedule.dateOffset]?.date;
     const dayLabel = date
       ? date.toLocaleDateString('en-US', { weekday: 'short', day: 'numeric', month: 'short' })
@@ -65,7 +67,7 @@ export function ListingDetailScreen({ navigation, route }: Props) {
   if (!listing) {
     return (
       <SafeAreaView style={styles.loadingContainer}>
-        <Text style={styles.loadingText}>Loading spot…</Text>
+        <Text style={styles.loadingText}>{t('detail.loadingSpot')}</Text>
       </SafeAreaView>
     );
   }
@@ -137,26 +139,26 @@ export function ListingDetailScreen({ navigation, route }: Props) {
 
           <View style={styles.divider} />
 
-          <Text style={styles.sectionTitle}>Amenities</Text>
+          <Text style={styles.sectionTitle}>{t('detail.amenities')}</Text>
           <View style={styles.badgeRow}>
             {amenities.map((amenity) => (
               <AmenityBadge key={amenity.key} icon={amenity.icon as any} label={amenity.label} />
             ))}
           </View>
 
-          <Text style={styles.sectionTitle}>Vehicle Types Supported</Text>
+          <Text style={styles.sectionTitle}>{t('detail.vehicleTypes')}</Text>
           <View style={styles.badgeRow}>
             {listing.vehicleTypes.map((type) => (
               <View key={type} style={styles.vehiclePill}>
-                <Text style={styles.vehiclePillText}>{VEHICLE_TYPE_LABELS[type]}</Text>
+                <Text style={styles.vehiclePillText}>{t(`vehicle.${type}`)}</Text>
               </View>
             ))}
           </View>
 
-          <Text style={styles.sectionTitle}>About this spot</Text>
+          <Text style={styles.sectionTitle}>{t('detail.aboutSpot')}</Text>
           <Text style={styles.description}>{listing.description}</Text>
 
-          <Text style={styles.sectionTitle}>Location</Text>
+          <Text style={styles.sectionTitle}>{t('detail.location')}</Text>
           <MapView
             latitude={listing.latitude}
             longitude={listing.longitude}
@@ -174,7 +176,7 @@ export function ListingDetailScreen({ navigation, route }: Props) {
             style={styles.mapPreview}
           />
 
-          <Text style={styles.sectionTitle}>Booking</Text>
+          <Text style={styles.sectionTitle}>{t('detail.booking')}</Text>
           <View style={styles.bookingSummary}>
             <Ionicons
               name={bookingType === 'instant' ? 'flash' : 'calendar-outline'}

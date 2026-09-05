@@ -5,15 +5,16 @@ import { useFocusEffect } from '@react-navigation/native';
 import { BottomTabScreenProps } from '@react-navigation/bottom-tabs';
 import { Button } from '../../components/Button';
 import { StatusBadge } from '../../components/StatusBadge';
+import { useTranslation } from '../../i18n';
 import { colors, radius, spacing, typography } from '../../theme';
-import { ProviderTabParamList } from '../../navigation/types';
+import { MainTabParamList } from '../../navigation/types';
 import { dataSource } from '../../data/dataSource';
 import { useAuth } from '../../navigation/AuthContext';
 import { useUserProfile } from '../../navigation/UserProfileContext';
 import { bookingStatusToBadgeStatus, formatDateTimeRange, formatRecurringSchedule, isSameDay } from '../../utils/format';
 import { Booking, Listing } from '../../types';
 
-type Props = BottomTabScreenProps<ProviderTabParamList, 'Home'>;
+type Props = BottomTabScreenProps<MainTabParamList, 'Dashboard'>;
 
 interface JoinedBooking {
   booking: Booking;
@@ -21,6 +22,7 @@ interface JoinedBooking {
 }
 
 export function DashboardScreen({ navigation }: Props) {
+  const { t } = useTranslation();
   const { userId } = useAuth();
   const { name } = useUserProfile();
   const [listings, setListings] = useState<Listing[]>([]);
@@ -60,35 +62,35 @@ export function DashboardScreen({ navigation }: Props) {
     <SafeAreaView style={styles.container} edges={['top', 'bottom']}>
       <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
         <Text style={styles.greeting}>Hi, {name.split(' ')[0]} 👋</Text>
-        <Text style={styles.subtitle}>Manage your parking spots</Text>
+        <Text style={styles.subtitle}>{t('dashboard.subtitle')}</Text>
 
         <View style={styles.statsRow}>
           <View style={styles.statCard}>
             <Text style={styles.statValue}>{activeListingsCount}</Text>
-            <Text style={styles.statLabel}>Active Listings</Text>
+            <Text style={styles.statLabel}>{t('dashboard.activeListings')}</Text>
           </View>
           <View style={styles.statCard}>
             <Text style={[styles.statValue, styles.statValueSecondary]}>{todaysCount}</Text>
-            <Text style={styles.statLabel}>Today's Bookings</Text>
+            <Text style={styles.statLabel}>{t('dashboard.todaysBookings')}</Text>
           </View>
         </View>
 
         <View style={styles.sectionHeader}>
-          <Text style={styles.sectionTitle}>Upcoming Bookings</Text>
-          <Pressable onPress={() => navigation.navigate('Bookings', { screen: 'BookingRequests' })}>
-            <Text style={styles.viewAll}>View All</Text>
+          <Text style={styles.sectionTitle}>{t('dashboard.upcomingBookings')}</Text>
+          <Pressable onPress={() => navigation.navigate('Requests', { screen: 'BookingRequests' })}>
+            <Text style={styles.viewAll}>{t('common.viewAll')}</Text>
           </Pressable>
         </View>
 
         {upcoming.length === 0 ? (
-          <Text style={styles.emptyText}>No upcoming bookings on your listings yet.</Text>
+          <Text style={styles.emptyText}>{t('dashboard.noUpcoming')}</Text>
         ) : (
           upcoming.map(({ booking, listing }) => (
             <Pressable
               key={booking.id}
               style={styles.bookingCard}
               onPress={() =>
-                navigation.navigate('Bookings', {
+                navigation.navigate('Requests', {
                   screen: 'BookingDetailOwner',
                   params: { bookingId: booking.id },
                 })
@@ -113,8 +115,21 @@ export function DashboardScreen({ navigation }: Props) {
 
       <View style={styles.footer}>
         <Button
-          label="+ Add Listing"
-          onPress={() => navigation.navigate('Listings', { screen: 'AddListingDetails', params: {} })}
+          label={t('dashboard.addListing')}
+          onPress={() =>
+            // Seeds the whole stack rather than just naming a screen.
+            // `navigate('Listings', { screen: … })` on a tab that has not
+            // been opened yet rehydrates the stack as exactly that one
+            // screen — StackRouter only inserts the initial route when the
+            // incoming route list is empty — leaving Add Listing with
+            // nothing beneath it, so Back did nothing and finishing the
+            // flow had nowhere to return to.
+            navigation.navigate('Listings', {
+              state: {
+                routes: [{ name: 'MyListings' }, { name: 'AddListingDetails', params: {} }],
+              },
+            })
+          }
         />
       </View>
     </SafeAreaView>
@@ -155,6 +170,7 @@ const styles = StyleSheet.create({
   statValue: {
     ...typography.display,
     fontSize: 28,
+    lineHeight: 38,
     color: colors.primary,
     marginBottom: spacing.xxs,
   },

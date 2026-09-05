@@ -1,17 +1,18 @@
 import React, { useCallback, useEffect, useState } from 'react';
-import { FlatList, Pressable, StyleSheet, Text, View } from 'react-native';
+import { Alert, FlatList, Linking, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useFocusEffect } from '@react-navigation/native';
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
-import { ListingCard } from '../../components/ListingCard';
+import { BookingCard } from '../../components/BookingCard';
 import { SegmentedControl } from '../../components/SegmentedControl';
+import { useTranslation } from '../../i18n';
 import { colors, spacing, typography } from '../../theme';
 import { RenterBookingsStackParamList } from '../../navigation/types';
 import { dataSource } from '../../data/dataSource';
-import { AMENITIES } from '../../data/mockData';
+import { openDirectionsInMaps } from '../../utils/maps';
 import { useAuth } from '../../navigation/AuthContext';
 import { useRealtimeTable } from '../../hooks/useRealtimeTable';
-import { bookingStatusToBadgeStatus, formatDateTimeRange } from '../../utils/format';
+import { bookingStatusToBadgeStatus, formatTimeRangeShort } from '../../utils/format';
 import { Booking, Listing } from '../../types';
 
 type Props = NativeStackScreenProps<RenterBookingsStackParamList, 'MyBookings'>;
@@ -19,11 +20,15 @@ type Props = NativeStackScreenProps<RenterBookingsStackParamList, 'MyBookings'>;
 interface JoinedBooking {
   booking: Booking;
   listing: Listing;
+  /** The host's number, for the card's call button. Undefined until the
+   * owner has accepted — a pending request reveals no contact details. */
+  hostPhone?: string;
 }
 
 type Tab = 'upcoming' | 'past';
 
 export function MyBookingsScreen({ navigation }: Props) {
+  const { t } = useTranslation();
   const { userId } = useAuth();
   const [tab, setTab] = useState<Tab>('upcoming');
   const [items, setItems] = useState<JoinedBooking[]>([]);
@@ -34,7 +39,17 @@ export function MyBookingsScreen({ navigation }: Props) {
     const joined = await Promise.all(
       bookings.map(async (booking) => {
         const listing = await dataSource.getListingById(booking.listingId);
-        return listing ? { booking, listing } : null;
+        if (!listing) return null;
+        // Contact details are only revealed once a request is accepted —
+        // the same rule the Booking Confirmation screen applies.
+        const revealHost = booking.status !== 'pending';
+        const host = revealHost ? await dataSource.getPublicProfile(listing.ownerId) : null;
+        const joinedBooking: JoinedBooking = {
+          booking,
+          listing,
+          hostPhone: host?.phone || undefined,
+        };
+        return joinedBooking;
       })
     );
     setItems(joined.filter((item): item is JoinedBooking => item !== null));
@@ -72,6 +87,18 @@ export function MyBookingsScreen({ navigation }: Props) {
   );
   const visible = tab === 'upcoming' ? upcoming : past;
 
+  const handleCall = (phone: string) => {
+    Linking.openURL(`tel:${phone}`).catch(() => {});
+  };
+
+  const handleNavigate = async ({ listing }: JoinedBooking) => {
+    const opened = await openDirectionsInMaps({
+      latitude: listing.latitude,
+      longitude: listing.longitude,
+    });
+    if (!opened) Alert.alert(t('bookings.mapsFailedTitle'), t('bookings.mapsFailedBody'));
+  };
+
   const handlePress = ({ booking }: JoinedBooking) => {
     if (tab === 'upcoming') {
       // `booked` (accepted, not yet checked in) and `in_progress` both belong
@@ -92,14 +119,14 @@ export function MyBookingsScreen({ navigation }: Props) {
   return (
     <SafeAreaView style={styles.container} edges={['top', 'bottom']}>
       <View style={styles.header}>
-        <Text style={styles.title}>My Bookings</Text>
+        <Text style={styles.title}>{t('bookings.title')}</Text>
       </View>
 
       <View style={styles.segmentWrap}>
         <SegmentedControl
           options={[
-            { value: 'upcoming', label: 'Upcoming' },
-            { value: 'past', label: 'Past' },
+            { value: 'upcoming', label: t('bookings.upcoming') },
+            { value: 'past', label: t('bookings.past') },
           ]}
           value={tab}
           onChange={setTab}
@@ -112,45 +139,30 @@ export function MyBookingsScreen({ navigation }: Props) {
         contentContainerStyle={styles.listContent}
         showsVerticalScrollIndicator={false}
         renderItem={({ item }) => (
-          <Pressable onPress={() => handlePress(item)} style={styles.cardWrap}>
-            <ListingCard
+          <View style={styles.cardWrap}>
+            <BookingCard
               title={item.listing.title}
-              photoUrl={item.listing.photoUrl}
-              distanceKm={item.listing.distanceKm}
-              address={item.listing.address}
-              pricePerHour={item.listing.pricePerHour}
-              currency={item.listing.currency}
+              status={bookingStatusToBadgeStatus(item.booking.status)}
               rating={item.listing.rating}
               ratingCount={item.listing.ratingCount}
-              status={bookingStatusToBadgeStatus(item.booking.status)}
-              amenities={item.listing.amenities.map((key) => AMENITIES[key])}
-              // `ListingCard` is itself a `Pressable` internally. Nesting it
-              // inside this screen's own `Pressable` without also giving it
-              // an `onPress` meant taps landing on the card's photo/content
-              // area were captured (and silently dropped) by this inert
-              // inner `Pressable` before ever reaching the outer one — the
-              // reported "tapping the card does nothing" bug. Wiring the
-              // same handler here means a tap anywhere on the card fires it
-              // regardless of which of the two `Pressable`s claims it.
+              cost={`${item.listing.currency}${item.booking.totalPrice}`}
+              timeRange={formatTimeRangeShort(item.booking.startTime, item.booking.endTime)}
+              // Only worth showing while it can still be used to get in.
+              arrivalCode={
+                item.booking.status === 'booked' ? item.booking.verificationCode : undefined
+              }
+              onCall={item.hostPhone ? () => handleCall(item.hostPhone as string) : undefined}
+              onNavigate={() => handleNavigate(item)}
               onPress={() => handlePress(item)}
             />
-            <View style={styles.scheduleRow}>
-              <Text style={styles.scheduleText}>
-                {formatDateTimeRange(item.booking.startTime, item.booking.endTime)}
-              </Text>
-              <Text style={styles.scheduleTotal}>
-                {item.listing.currency}
-                {item.booking.totalPrice}
-              </Text>
-            </View>
-          </Pressable>
+          </View>
         )}
         ListEmptyComponent={
           !isLoading ? (
             <Text style={styles.emptyText}>
               {tab === 'upcoming'
-                ? 'No upcoming bookings yet — go find a spot on the Home tab.'
-                : 'No past bookings yet.'}
+                ? t('bookings.noUpcoming')
+                : t('bookings.noPast')}
             </Text>
           ) : null
         }
@@ -183,20 +195,6 @@ const styles = StyleSheet.create({
   },
   cardWrap: {
     marginBottom: spacing.md,
-  },
-  scheduleRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    paddingHorizontal: spacing.xs,
-    paddingTop: spacing.xs,
-  },
-  scheduleText: {
-    ...typography.caption,
-    color: colors.textSecondary,
-  },
-  scheduleTotal: {
-    ...typography.bodyMedium,
-    color: colors.primary,
   },
   emptyText: {
     ...typography.body,

@@ -5,4 +5,3 @@ export * from './SignUpScreen';
 export * from './ForgotPasswordEmailScreen';
 export * from './ForgotPasswordOTPScreen';
 export * from './ResetPasswordScreen';
-export * from './CompleteProfileScreen';

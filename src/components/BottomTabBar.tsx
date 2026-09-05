@@ -12,14 +12,18 @@ import { colors, spacing, typography } from '../theme';
  */
 const TAB_ICONS: Record<string, keyof typeof Ionicons.glyphMap> = {
   Home: 'home-outline',
+  Dashboard: 'home-outline',
   Bookings: 'calendar-outline',
+  Requests: 'file-tray-outline',
   Listings: 'list-outline',
   Profile: 'person-outline',
 };
 
 const TAB_ICONS_ACTIVE: Record<string, keyof typeof Ionicons.glyphMap> = {
   Home: 'home',
+  Dashboard: 'home',
   Bookings: 'calendar',
+  Requests: 'file-tray',
   Listings: 'list',
   Profile: 'person',
 };

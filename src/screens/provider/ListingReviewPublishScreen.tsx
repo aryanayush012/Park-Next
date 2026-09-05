@@ -5,24 +5,39 @@ import { Ionicons } from '@expo/vector-icons';
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { Button } from '../../components/Button';
 import { Checkbox } from '../../components/Checkbox';
+import { PhoneRequiredDialog } from '../../components/PhoneRequiredDialog';
 import { ListingCard } from '../../components/ListingCard';
+import { useTranslation } from '../../i18n';
 import { colors, spacing, typography } from '../../theme';
 import { ProviderListingsStackParamList } from '../../navigation/types';
 import { dataSource } from '../../data/dataSource';
 import { AMENITIES } from '../../data/mockData';
 import { useAuth } from '../../navigation/AuthContext';
+import { useUserProfile } from '../../navigation/UserProfileContext';
 import { mapDraftToCreateInput } from './addListingDraft';
 
 type Props = NativeStackScreenProps<ProviderListingsStackParamList, 'ListingReviewPublish'>;
 
 export function ListingReviewPublishScreen({ navigation, route }: Props) {
+  const { t } = useTranslation();
   const { userId } = useAuth();
+  const { phone } = useUserProfile();
   const { draft, editingListingId } = route.params;
   const [confirmed, setConfirmed] = useState(false);
   const [isPublishing, setIsPublishing] = useState(false);
+  const [phoneGateVisible, setPhoneGateVisible] = useState(false);
 
-  const handlePublish = async () => {
+  /** Gate publishing on having a mobile number, then hand off to `publishListing`. */
+  const handlePublish = () => {
     if (!confirmed) return;
+    if (!phone.trim()) {
+      setPhoneGateVisible(true);
+      return;
+    }
+    publishListing();
+  };
+
+  const publishListing = async () => {
     setIsPublishing(true);
     try {
       const input = mapDraftToCreateInput(draft, userId);
@@ -31,9 +46,15 @@ export function ListingReviewPublishScreen({ navigation, route }: Props) {
       } else {
         await dataSource.createListing(input);
       }
-      navigation.popToTop();
+      // Not `popToTop()`: that lands on whatever happens to sit at index 0,
+      // and the Add Listing flow can be started from the Dashboard, which
+      // builds this stack without `MyListings` underneath at all (see the
+      // comment on that button). Resetting states the destination outright,
+      // so a published listing always ends on the list it was added to and
+      // the half-finished flow is gone from the back stack.
+      navigation.reset({ index: 0, routes: [{ name: 'MyListings' }] });
     } catch (error) {
-      Alert.alert('Something went wrong', 'Could not publish this listing. Please try again.');
+      Alert.alert(t('review.failedTitle'), t('review.failedBody'));
     } finally {
       setIsPublishing(false);
     }
@@ -45,14 +66,14 @@ export function ListingReviewPublishScreen({ navigation, route }: Props) {
         <Pressable onPress={() => navigation.goBack()} hitSlop={12} style={styles.backButton}>
           <Ionicons name="arrow-back" size={20} color={colors.textPrimary} />
         </Pressable>
-        <Text style={styles.headerTitle}>Review & Publish</Text>
+        <Text style={styles.headerTitle}>{t('review.title')}</Text>
       </View>
 
       <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
-        <Text style={styles.subtitle}>This is how renters will see your listing</Text>
+        <Text style={styles.subtitle}>{t('review.subtitle')}</Text>
 
         <ListingCard
-          title={draft.title || 'Untitled Spot'}
+          title={draft.title || t('review.untitled')}
           photoUrl={draft.photos[0] ?? ''}
           distanceKm={0}
           address={draft.address}
@@ -68,7 +89,7 @@ export function ListingReviewPublishScreen({ navigation, route }: Props) {
           <Checkbox
             checked={confirmed}
             onToggle={() => setConfirmed((prev) => !prev)}
-            label="I confirm I have the right to rent this parking space out. ParkNext does not verify ownership documents at this time."
+            label={t('review.confirm')}
           />
         </View>
 
@@ -77,15 +98,25 @@ export function ListingReviewPublishScreen({ navigation, route }: Props) {
 
       <View style={styles.footer}>
         <Button
-          label={editingListingId ? 'Save Changes' : 'Publish Listing'}
+          label={editingListingId ? t('review.saveChanges') : t('review.publish')}
           onPress={handlePublish}
           disabled={!confirmed}
           loading={isPublishing}
         />
         {!confirmed ? (
-          <Text style={styles.helperText}>Check the confirmation box above to enable publishing.</Text>
+          <Text style={styles.helperText}>{t('review.checkBox')}</Text>
         ) : null}
       </View>
+
+      <PhoneRequiredDialog
+        visible={phoneGateVisible}
+        reason="publish"
+        onCancel={() => setPhoneGateVisible(false)}
+        onSaved={() => {
+          setPhoneGateVisible(false);
+          publishListing();
+        }}
+      />
     </SafeAreaView>
   );
 }

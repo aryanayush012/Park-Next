@@ -6,6 +6,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { Button } from '../../components/Button';
 import { SegmentedControl } from '../../components/SegmentedControl';
+import { TranslationKey, useTranslation } from '../../i18n';
 import { colors, radius, spacing, typography } from '../../theme';
 import { ProviderBookingsStackParamList } from '../../navigation/types';
 import { dataSource } from '../../data/dataSource';
@@ -26,10 +27,10 @@ interface JoinedBooking {
 
 type Tab = 'requests' | 'history';
 
-const TYPE_LABEL: Record<BookingType, string> = {
-  instant: 'Instant Booking',
-  advance: 'Advance Booking',
-  recurring: 'Recurring',
+const TYPE_LABEL_KEYS: Record<BookingType, TranslationKey> = {
+  instant: 'booking.instant',
+  advance: 'booking.advance',
+  recurring: 'booking.recurring',
 };
 
 const TYPE_COLOR: Record<BookingType, { fg: string; bg: string }> = {
@@ -47,18 +48,28 @@ const TYPE_COLOR: Record<BookingType, { fg: string; bg: string }> = {
 // event for on its own.
 const REQUESTS_POLL_MS = 30000;
 
-/** "Respond within 8 min" / "Respond within 2h 15m" countdown label. */
-function formatTimeLeftLabel(deadlineIso: string, now: number): string {
+/**
+ * "Respond within 8 min" / "Respond within 2h 15m" countdown label.
+ *
+ * Takes `t` as an argument because it lives outside the component, where
+ * the hook is not available.
+ */
+function formatTimeLeftLabel(
+  deadlineIso: string,
+  now: number,
+  t: ReturnType<typeof useTranslation>['t']
+): string {
   const msLeft = new Date(deadlineIso).getTime() - now;
-  if (msLeft <= 0) return 'Expiring…';
+  if (msLeft <= 0) return t('requests.expiring');
   const minutes = Math.ceil(msLeft / 60000);
-  if (minutes < 60) return `Respond within ${minutes} min`;
+  if (minutes < 60) return t('requests.respondWithinMinutes', { minutes });
   const hours = Math.floor(minutes / 60);
   const remainingMinutes = minutes % 60;
-  return `Respond within ${hours}h ${remainingMinutes}m`;
+  return t('requests.respondWithinHours', { hours, minutes: remainingMinutes });
 }
 
 export function BookingRequestsScreen({ navigation }: Props) {
+  const { t } = useTranslation();
   const { userId } = useAuth();
   const [tab, setTab] = useState<Tab>('requests');
   const [all, setAll] = useState<JoinedBooking[]>([]);
@@ -150,10 +161,10 @@ export function BookingRequestsScreen({ navigation }: Props) {
       );
     } catch (error) {
       Alert.alert(
-        'Could not respond',
+        t('requests.couldNotRespond'),
         error instanceof Error
           ? error.message
-          : 'This request may have already expired or been withdrawn. Refreshing the list.'
+          : t('requests.expiredOrWithdrawn')
       );
       load();
     } finally {
@@ -164,7 +175,7 @@ export function BookingRequestsScreen({ navigation }: Props) {
   return (
     <SafeAreaView style={styles.container} edges={['top', 'bottom']}>
       <View style={styles.header}>
-        <Text style={styles.title}>Booking Requests</Text>
+        <Text style={styles.title}>{t('requests.title')}</Text>
         <Text style={styles.subtitle}>
           {tab === 'requests' ? `${requests.length} pending requests` : `${history.length} completed`}
         </Text>
@@ -173,8 +184,8 @@ export function BookingRequestsScreen({ navigation }: Props) {
       <View style={styles.segmentWrap}>
         <SegmentedControl
           options={[
-            { value: 'requests', label: 'Requests' },
-            { value: 'history', label: 'History' },
+            { value: 'requests', label: t('requests.tabRequests') },
+            { value: 'history', label: t('requests.tabHistory') },
           ]}
           value={tab}
           onChange={setTab}
@@ -204,7 +215,7 @@ export function BookingRequestsScreen({ navigation }: Props) {
                   </View>
                   <View style={[styles.typeBadge, { backgroundColor: typeColor.bg }]}>
                     <Text style={[styles.typeBadgeText, { color: typeColor.fg }]}>
-                      {TYPE_LABEL[item.booking.type]}
+                      {t(TYPE_LABEL_KEYS[item.booking.type])}
                     </Text>
                   </View>
                 </View>
@@ -224,20 +235,20 @@ export function BookingRequestsScreen({ navigation }: Props) {
                 <View style={styles.deadlineRow}>
                   <Ionicons name="time-outline" size={13} color={colors.secondary} />
                   <Text style={styles.deadlineText}>
-                    {formatTimeLeftLabel(item.booking.responseDeadline, now)}
+                    {formatTimeLeftLabel(item.booking.responseDeadline, now, t)}
                   </Text>
                 </View>
 
                 <View style={styles.actionsRow}>
                   <Button
-                    label="Decline"
+                    label={t('common.decline')}
                     variant="secondary"
                     onPress={() => respond(item.booking.id, false)}
                     loading={respondingId === item.booking.id}
                     style={styles.actionButton}
                   />
                   <Button
-                    label="Accept"
+                    label={t('common.accept')}
                     onPress={() => respond(item.booking.id, true)}
                     loading={respondingId === item.booking.id}
                     style={styles.actionButton}
@@ -247,7 +258,7 @@ export function BookingRequestsScreen({ navigation }: Props) {
             );
           }}
           ListEmptyComponent={
-            <Text style={styles.emptyText}>No pending requests right now.</Text>
+            <Text style={styles.emptyText}>{t('requests.none')}</Text>
           }
         />
       ) : (

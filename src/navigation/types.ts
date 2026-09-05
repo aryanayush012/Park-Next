@@ -25,8 +25,7 @@ export type RootStackParamList = {
    * that flag in `AuthContext.tsx`. Not part of the normal signed-out
    * stack's flow between screens, so it takes no params of its own. */
   ResetPassword: undefined;
-  CompleteProfile: undefined;
-  Main: undefined;
+  Main: NavigatorScreenParams<MainTabParamList>;
 };
 
 /**
@@ -59,12 +58,6 @@ export type RenterBookingsStackParamList = SharedBookingParamList & {
   BookingDetail: { bookingId: string };
 };
 
-export type RenterTabParamList = {
-  Home: undefined;
-  Bookings: undefined;
-  Profile: undefined;
-};
-
 /** Add Listing's 3-step flow + review, threaded via one accumulated draft object. */
 export type AddListingParamList = {
   AddListingDetails: { draft?: AddListingDraft; editingListingId?: string };
@@ -78,16 +71,30 @@ export type ProviderListingsStackParamList = AddListingParamList & {
   MyListings: undefined;
 };
 
-/** Bookings tab — incoming requests through to a single booking's owner-side detail. */
+/** Requests tab — incoming requests through to a single booking's owner-side detail. */
 export type ProviderBookingsStackParamList = {
   BookingRequests: undefined;
   BookingDetailOwner: { bookingId: string };
 };
 
-export type ProviderTabParamList = {
+/**
+ * Every tab in the app, across both modes — one list because both modes are
+ * served by a single navigator (see `MainNavigator`). Renter and provider
+ * route names are deliberately distinct so a tab that changes meaning with
+ * the role can't inherit the other role's leftover nested state:
+ *
+ * - renter: `Home` (map) + `Bookings` (their own bookings)
+ * - provider: `Dashboard` + `Listings` + `Requests` (bookings *others*
+ *   have made on their spots — not bookings of their own, which is why this
+ *   isn't called Bookings)
+ * - both: `Profile`
+ */
+export type MainTabParamList = {
   Home: undefined;
+  Bookings: undefined;
+  Dashboard: undefined;
   Listings: NavigatorScreenParams<ProviderListingsStackParamList>;
-  Bookings: NavigatorScreenParams<ProviderBookingsStackParamList>;
+  Requests: NavigatorScreenParams<ProviderBookingsStackParamList>;
   Profile: undefined;
 };
 

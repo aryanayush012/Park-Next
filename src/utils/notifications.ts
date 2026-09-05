@@ -184,3 +184,147 @@ export async function cancelBookingEndingSoonReminder(bookingId: string): Promis
     // Best-effort cleanup — nothing user-visible depends on this succeeding.
   }
 }
+
+/** Category the Accept / Decline buttons hang off. Must match what the Edge
+ * Function sends as `categoryId`, or the push arrives with no buttons. */
+export const BOOKING_REQUEST_CATEGORY = 'booking-request';
+export const BOOKING_REQUEST_ACCEPT = 'accept';
+export const BOOKING_REQUEST_DECLINE = 'decline';
+
+const REQUEST_CHANNEL_ID = 'booking-requests';
+
+let categoryDone = false;
+
+/**
+ * Registers the Accept / Decline buttons that appear on a booking-request
+ * notification, plus the Android channel it arrives on.
+ *
+ * Both actions use `opensAppToForeground: true`. Handling a button *without*
+ * the app coming forward needs a background task — `expo-notifications`'
+ * `registerTaskAsync`, which requires `expo-task-manager` (not installed) and
+ * a native rebuild. With no task registered, a background action would be
+ * queued silently until the next launch, which is worse than a visible
+ * half-second app open: the owner would think they had responded when they
+ * had not, and the request would quietly expire.
+ */
+export async function ensureBookingRequestCategory(): Promise<void> {
+  if (categoryDone) return;
+  const Notifications = await loadNotifications();
+  if (!Notifications) return;
+
+  try {
+    if (Platform.OS === 'android') {
+      await Notifications.setNotificationChannelAsync(REQUEST_CHANNEL_ID, {
+        name: 'Booking requests',
+        importance: Notifications.AndroidImportance.MAX,
+        vibrationPattern: [0, 400, 250, 400],
+        sound: 'default',
+      });
+    }
+
+    await Notifications.setNotificationCategoryAsync(BOOKING_REQUEST_CATEGORY, [
+      {
+        identifier: BOOKING_REQUEST_ACCEPT,
+        buttonTitle: 'Accept',
+        options: { opensAppToForeground: true },
+      },
+      {
+        identifier: BOOKING_REQUEST_DECLINE,
+        buttonTitle: 'Decline',
+        options: { opensAppToForeground: true, isDestructive: true },
+      },
+    ]);
+    categoryDone = true;
+  } catch {
+    // Best-effort — see the module-level comment.
+  }
+}
+
+/**
+ * The device's Expo push token, or null where push isn't available.
+ *
+ * Needs the EAS project id, which `expo-constants` exposes from `app.json`.
+ * On Android this only resolves in a build carrying FCM credentials — Expo's
+ * push service delivers Android notifications through Firebase, so without
+ * them this returns null and the app falls back to the same-device local
+ * notification below.
+ */
+export async function getPushToken(): Promise<string | null> {
+  const ok = await ensureNotificationSetup();
+  if (!ok) return null;
+  const Notifications = await loadNotifications();
+  if (!Notifications) return null;
+
+  const projectId =
+    Constants.expoConfig?.extra?.eas?.projectId ?? Constants.easConfig?.projectId;
+  if (!projectId) return null;
+
+  try {
+    const { data } = await Notifications.getExpoPushTokenAsync({ projectId });
+    return data || null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * What the owner did with the notification. `open` is a tap on the body
+ * rather than a button — it should take them to the request, not answer it
+ * on their behalf.
+ */
+export type BookingRequestAction =
+  | { kind: 'respond'; bookingId: string; accept: boolean }
+  | { kind: 'open'; bookingId: string };
+
+/**
+ * Calls `handler` when the owner taps Accept or Decline on a booking-request
+ * notification — including the tap that launched the app, which arrives
+ * through `getLastNotificationResponseAsync` rather than the live listener.
+ *
+ * Returns a teardown function, or a no-op where notifications aren't
+ * supported.
+ */
+export async function addBookingRequestActionListener(
+  handler: (action: BookingRequestAction) => void
+): Promise<() => void> {
+  const Notifications = await loadNotifications();
+  if (!Notifications) return () => {};
+
+  const toAction = (response: {
+    actionIdentifier: string;
+    notification: { request: { content: { data?: Record<string, unknown> | null } } };
+  }): BookingRequestAction | null => {
+    const bookingId = response.notification.request.content.data?.bookingId;
+    if (typeof bookingId !== 'string' || !bookingId) return null;
+
+    const { actionIdentifier } = response;
+    if (actionIdentifier === BOOKING_REQUEST_ACCEPT) {
+      return { kind: 'respond', bookingId, accept: true };
+    }
+    if (actionIdentifier === BOOKING_REQUEST_DECLINE) {
+      return { kind: 'respond', bookingId, accept: false };
+    }
+    // Anything else is a tap on the notification itself — on both platforms
+    // that arrives as expo-notifications' DEFAULT_ACTION_IDENTIFIER.
+    return { kind: 'open', bookingId };
+  };
+
+  // A cold start from a notification button: the response is waiting, not
+  // emitted, so the live listener alone would miss it entirely.
+  try {
+    const initial = await Notifications.getLastNotificationResponseAsync();
+    if (initial) {
+      const action = toAction(initial);
+      if (action) handler(action);
+    }
+  } catch {
+    // Nothing to replay.
+  }
+
+  const subscription = Notifications.addNotificationResponseReceivedListener((response) => {
+    const action = toAction(response);
+    if (action) handler(action);
+  });
+
+  return () => subscription.remove();
+}

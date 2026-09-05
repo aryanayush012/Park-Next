@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { ActivityIndicator, Pressable, StyleProp, StyleSheet, Text, View, ViewStyle } from 'react-native';
 import { WebView, WebViewMessageEvent } from 'react-native-webview';
+import { useTranslation } from '../i18n';
 import { colors, spacing, typography } from '../theme';
 import { GeoPoint } from '../types';
 import { LEAFLET_CSS, LEAFLET_JS } from '../../assets/leafletAssets';
@@ -96,6 +97,7 @@ export function MapView({
   interactive = true,
   style,
 }: MapViewProps) {
+  const { t } = useTranslation();
   const webviewRef = useRef<WebView>(null);
   const [isReady, setIsReady] = useState(false);
   const [timedOut, setTimedOut] = useState(false);
@@ -233,9 +235,9 @@ export function MapView({
       ) : null}
       {showError ? (
         <View style={styles.loadingOverlay}>
-          <Text style={styles.errorText}>Map couldn't load. Check your connection.</Text>
+          <Text style={styles.errorText}>{t('map.loadFailed')}</Text>
           <Pressable onPress={retry} style={styles.retryButton} hitSlop={8}>
-            <Text style={styles.retryButtonText}>Try again</Text>
+            <Text style={styles.retryButtonText}>{t('common.tryAgainShort')}</Text>
           </Pressable>
         </View>
       ) : null}

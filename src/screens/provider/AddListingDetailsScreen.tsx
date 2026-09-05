@@ -7,6 +7,7 @@ import { Button } from '../../components/Button';
 import { TextField } from '../../components/TextField';
 import { SelectableChip } from '../../components/SelectableChip';
 import { MapView } from '../../components/MapView';
+import { useTranslation } from '../../i18n';
 import { colors, radius, spacing, typography } from '../../theme';
 import { ProviderListingsStackParamList } from '../../navigation/types';
 import { VEHICLE_TYPE_LABELS } from '../../data/mockData';
@@ -20,6 +21,7 @@ type Props = NativeStackScreenProps<ProviderListingsStackParamList, 'AddListingD
 const VEHICLE_TYPES: VehicleType[] = ['two_wheeler', 'car', 'suv'];
 
 export function AddListingDetailsScreen({ navigation, route }: Props) {
+  const { t } = useTranslation();
   const { editingListingId } = route.params ?? {};
   const initialDraft = route.params?.draft ?? DEFAULT_ADD_LISTING_DRAFT;
   const { location: currentLocation } = useCurrentLocation();
@@ -89,8 +91,8 @@ export function AddListingDetailsScreen({ navigation, route }: Props) {
           <Ionicons name="arrow-back" size={20} color={colors.textPrimary} />
         </Pressable>
         <View>
-          <Text style={styles.headerTitle}>{editingListingId ? 'Edit Listing' : 'Add Listing'}</Text>
-          <Text style={styles.stepLabel}>Step 1 of 3 · Details</Text>
+          <Text style={styles.headerTitle}>{editingListingId ? t('common.editListing') : t('common.addListing')}</Text>
+          <Text style={styles.stepLabel}>{t('addListing.step1')}</Text>
         </View>
       </View>
 
@@ -110,17 +112,17 @@ export function AddListingDetailsScreen({ navigation, route }: Props) {
         keyboardShouldPersistTaps="handled"
       >
         <TextField
-          label="Listing Title"
-          placeholder="Covered Driveway Spot"
+          label={t('addListing.titleLabel')}
+          placeholder={t('addListing.titlePlaceholder')}
           value={title}
           onChangeText={setTitle}
-          helperText="Keep it short and descriptive."
+          helperText={t('addListing.titleHelper')}
         />
 
         <View style={{ height: spacing.md }} />
 
         <TextField
-          label="Description"
+          label={t('addListing.descriptionLabel')}
           placeholder="Secure covered spot in a gated society, 2 mins walk from Sony World Signal. Easy in/out access."
           value={description}
           onChangeText={setDescription}
@@ -128,12 +130,12 @@ export function AddListingDetailsScreen({ navigation, route }: Props) {
           numberOfLines={4}
         />
 
-        <Text style={styles.sectionTitle}>Vehicle Types Supported</Text>
+        <Text style={styles.sectionTitle}>{t('addListing.vehicleTypes')}</Text>
         <View style={styles.chipRow}>
           {VEHICLE_TYPES.map((type) => (
             <SelectableChip
               key={type}
-              label={VEHICLE_TYPE_LABELS[type]}
+              label={t(`vehicle.${type}`)}
               selected={vehicleTypes.includes(type)}
               onPress={() => toggleVehicleType(type)}
             />
@@ -144,7 +146,7 @@ export function AddListingDetailsScreen({ navigation, route }: Props) {
 
         <View style={styles.addressFieldWrap}>
           <TextField
-            label="Address"
+            label={t('addListing.addressLabel')}
             placeholder="80 Feet Road, Koramangala 5th Block"
             value={address}
             onChangeText={setAddress}
@@ -156,7 +158,7 @@ export function AddListingDetailsScreen({ navigation, route }: Props) {
               // the press register first.
               setTimeout(() => setIsAddressFocused(false), 150);
             }}
-            helperText="Start typing to search, or drop a pin on the map below."
+            helperText={t('addListing.addressHelper')}
           />
           {isAddressFocused && addressSuggestions.length > 0 ? (
             <View style={styles.suggestionsBox}>
@@ -179,7 +181,7 @@ export function AddListingDetailsScreen({ navigation, route }: Props) {
           ) : null}
         </View>
 
-        <Text style={styles.sectionTitle}>Pin Your Exact Location</Text>
+        <Text style={styles.sectionTitle}>{t('addListing.pinLocation')}</Text>
         <View
           onStartShouldSetResponderCapture={() => {
             lockScroll();
@@ -202,14 +204,14 @@ export function AddListingDetailsScreen({ navigation, route }: Props) {
           />
         </View>
         <Text style={styles.mapHint}>
-          {latitude !== null ? 'Tap the map again to move the pin.' : 'Tap the map to drop a pin at your exact spot.'}
+          {latitude !== null ? t('addListing.tapToMovePin') : t('addListing.tapToDropPin')}
         </Text>
 
         <View style={{ height: spacing.xxl }} />
       </ScrollView>
 
       <View style={styles.footer}>
-        <Button label="Continue to Amenities" onPress={handleContinue} disabled={!canContinue} />
+        <Button label={t('addListing.continueToAmenities')} onPress={handleContinue} disabled={!canContinue} />
       </View>
     </SafeAreaView>
   );

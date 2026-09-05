@@ -11,6 +11,7 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Button } from '../../components/Button';
 import { TextField } from '../../components/TextField';
+import { useTranslation } from '../../i18n';
 import { colors, spacing, typography } from '../../theme';
 import { isSupabaseConfigured, supabase } from '../../data/supabaseClient';
 import { useAuth } from '../../navigation/AuthContext';
@@ -26,6 +27,7 @@ const MOCK_UPDATE_DELAY_MS = 700;
  * just gating on a recovery-specific auth event.
  */
 export function ResetPasswordScreen() {
+  const { t } = useTranslation();
   const { endPasswordRecovery } = useAuth();
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
@@ -42,7 +44,7 @@ export function ResetPasswordScreen() {
   const showConfirmError = touched && confirmPassword.length > 0 && !passwordsMatch;
 
   const finishAndReturnToSignIn = () => {
-    Alert.alert('Password updated', 'Sign in with your new password.', [
+    Alert.alert(t('reset.updatedTitle'), t('reset.updatedBody'), [
       { text: 'OK', onPress: () => endPasswordRecovery() },
     ]);
   };
@@ -86,14 +88,14 @@ export function ResetPasswordScreen() {
           contentContainerStyle={styles.scrollContent}
           keyboardShouldPersistTaps="handled"
         >
-          <Text style={styles.title}>Set a new password</Text>
+          <Text style={styles.title}>{t('reset.title')}</Text>
           <Text style={styles.subtitle}>
             Choose a new password for your account — you'll use it to sign in from now on.
           </Text>
 
           <TextField
-            label="New password"
-            placeholder="At least 6 characters"
+            label={t('reset.newPassword')}
+            placeholder={t('auth.passwordMinPlaceholder')}
             value={password}
             onChangeText={(text) => {
               setPassword(text);
@@ -102,12 +104,12 @@ export function ResetPasswordScreen() {
             autoCapitalize="none"
             autoComplete="password-new"
             secureTextEntry
-            errorText={showPasswordError ? 'Use at least 6 characters.' : undefined}
+            errorText={showPasswordError ? t('auth.passwordTooShort') : undefined}
           />
           <View style={styles.fieldSpacing}>
             <TextField
-              label="Confirm new password"
-              placeholder="Type it again"
+              label={t('reset.confirmNewPassword')}
+              placeholder={t('auth.typeItAgain')}
               value={confirmPassword}
               onChangeText={(text) => {
                 setConfirmPassword(text);
@@ -117,7 +119,7 @@ export function ResetPasswordScreen() {
               autoCapitalize="none"
               autoComplete="password-new"
               secureTextEntry
-              errorText={showConfirmError ? "Passwords don't match." : undefined}
+              errorText={showConfirmError ? t('auth.passwordsDontMatch') : undefined}
             />
           </View>
 
@@ -126,13 +128,13 @@ export function ResetPasswordScreen() {
 
         <View style={styles.footer}>
           <Button
-            label="Update Password"
+            label={t('reset.submit')}
             onPress={handleUpdatePassword}
             disabled={!password || !confirmPassword || isSubmitting}
             loading={isSubmitting}
           />
           <Text style={styles.cancelLink} onPress={handleCancel} suppressHighlighting={isCancelling}>
-            {isCancelling ? 'Cancelling…' : 'Changed your mind? Back to Sign In'}
+            {isCancelling ? t('reset.cancelling') : t('reset.backToSignIn')}
           </Text>
         </View>
       </KeyboardAvoidingView>

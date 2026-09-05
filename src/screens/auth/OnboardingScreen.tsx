@@ -12,6 +12,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { Button } from '../../components/Button';
+import { useTranslation } from '../../i18n';
 import { colors, radius, spacing, typography } from '../../theme';
 import { RootStackParamList } from '../../navigation/types';
 
@@ -19,34 +20,35 @@ type Props = NativeStackScreenProps<RootStackParamList, 'Onboarding'>;
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 
+import type { TranslationKey } from '../../i18n';
+
 interface Slide {
   icon: React.ComponentProps<typeof Ionicons>['name'];
-  title: string;
-  description: string;
+  /** Looked up at render, so switching language re-reads them. */
+  titleKey: TranslationKey;
+  descriptionKey: TranslationKey;
 }
 
 const SLIDES: Slide[] = [
   {
     icon: 'pricetag',
-    title: 'Never circle the block again',
-    description:
-      'Find a verified private parking spot near your destination in seconds — no more endless loops.',
+    titleKey: 'onboarding.slide1Title',
+    descriptionKey: 'onboarding.slide1Body',
   },
   {
     icon: 'time',
-    title: 'Book a private spot by the hour',
-    description:
-      'Reserve in advance, or grab one instantly while you’re already on the road.',
+    titleKey: 'onboarding.slide2Title',
+    descriptionKey: 'onboarding.slide2Body',
   },
   {
     icon: 'navigate',
-    title: 'Get turn-by-turn directions',
-    description:
-      'Once you’re booked, follow in-app directions straight to your reserved spot.',
+    titleKey: 'onboarding.slide3Title',
+    descriptionKey: 'onboarding.slide3Body',
   },
 ];
 
 export function OnboardingScreen({ navigation }: Props) {
+  const { t } = useTranslation();
   const [activeIndex, setActiveIndex] = useState(0);
   const scrollRef = useRef<ScrollView>(null);
   const isLastSlide = activeIndex === SLIDES.length - 1;
@@ -79,7 +81,7 @@ export function OnboardingScreen({ navigation }: Props) {
         style={styles.pager}
       >
         {SLIDES.map((slide) => (
-          <View key={slide.title} style={[styles.slide, { width: SCREEN_WIDTH }]}>
+          <View key={slide.titleKey} style={[styles.slide, { width: SCREEN_WIDTH }]}>
             <View style={styles.illustration}>
               <View style={styles.illustrationCircle}>
                 <View style={styles.bubble}>
@@ -100,14 +102,14 @@ export function OnboardingScreen({ navigation }: Props) {
               ))}
             </View>
 
-            <Text style={styles.title}>{slide.title}</Text>
-            <Text style={styles.description}>{slide.description}</Text>
+            <Text style={styles.title}>{t(slide.titleKey)}</Text>
+            <Text style={styles.description}>{t(slide.descriptionKey)}</Text>
           </View>
         ))}
       </ScrollView>
 
       <View style={styles.footer}>
-        <Button label={isLastSlide ? 'Get Started' : 'Next'} onPress={handleNext} />
+        <Button label={isLastSlide ? t('onboarding.getStarted') : t('onboarding.next')} onPress={handleNext} />
         {!isLastSlide ? (
           <Text style={styles.skip} onPress={goToSignIn}>
             Skip

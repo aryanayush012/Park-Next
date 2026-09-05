@@ -14,6 +14,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { Button } from '../../components/Button';
 import { TextField } from '../../components/TextField';
+import { useTranslation } from '../../i18n';
 import { colors, radius, spacing, typography } from '../../theme';
 import { RootStackParamList } from '../../navigation/types';
 import { isSupabaseConfigured, supabase } from '../../data/supabaseClient';
@@ -31,6 +32,7 @@ const MOCK_SIGN_IN_DELAY_MS = 700;
 const MOCK_GOOGLE_SIGN_IN_DELAY_MS = 700;
 
 export function SignInScreen({ navigation }: Props) {
+  const { t } = useTranslation();
   const { signInMock } = useAuth();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -112,8 +114,8 @@ export function SignInScreen({ navigation }: Props) {
             <Text style={styles.logoLetter}>P</Text>
           </View>
 
-          <Text style={styles.title}>Welcome back</Text>
-          <Text style={styles.subtitle}>Sign in to your ParkNext account.</Text>
+          <Text style={styles.title}>{t('signIn.title')}</Text>
+          <Text style={styles.subtitle}>{t('signIn.subtitle')}</Text>
 
           <Pressable
             onPress={handleGoogleSignIn}
@@ -129,20 +131,20 @@ export function SignInScreen({ navigation }: Props) {
             ) : (
               <>
                 <Ionicons name="logo-google" size={20} color={colors.textPrimary} />
-                <Text style={styles.googleButtonText}>Continue with Google</Text>
+                <Text style={styles.googleButtonText}>{t('auth.continueWithGoogle')}</Text>
               </>
             )}
           </Pressable>
 
           <View style={styles.dividerRow}>
             <View style={styles.dividerLine} />
-            <Text style={styles.dividerText}>or sign in with email</Text>
+            <Text style={styles.dividerText}>{t('signIn.divider')}</Text>
             <View style={styles.dividerLine} />
           </View>
 
           <View style={styles.fieldSpacing}>
             <TextField
-              label="Email address"
+              label={t('auth.emailLabel')}
               placeholder="priya.sharma@gmail.com"
               value={email}
               onChangeText={setEmail}
@@ -150,12 +152,12 @@ export function SignInScreen({ navigation }: Props) {
               autoCapitalize="none"
               autoComplete="email"
               keyboardType="email-address"
-              errorText={showEmailError ? 'Enter a valid email address.' : undefined}
+              errorText={showEmailError ? t('auth.emailInvalid') : undefined}
             />
           </View>
           <View style={styles.fieldSpacing}>
             <TextField
-              label="Password"
+              label={t('auth.passwordLabel')}
               placeholder="••••••••"
               value={password}
               onChangeText={setPassword}
@@ -168,25 +170,21 @@ export function SignInScreen({ navigation }: Props) {
           <Text
             style={styles.forgotLink}
             onPress={() => navigation.navigate('ForgotPasswordEmail')}
-          >
-            Forgot password?
-          </Text>
+          >{t('signIn.forgot')}</Text>
 
           {formError ? <Text style={styles.formErrorText}>{formError}</Text> : null}
         </ScrollView>
 
         <View style={styles.footer}>
           <Button
-            label="Sign In"
+            label={t('signIn.submit')}
             onPress={handleSignIn}
             disabled={!email || !password || isSubmitting}
             loading={isSubmitting}
           />
           <Text style={styles.footerLinkRow}>
             New here?{' '}
-            <Text style={styles.footerLink} onPress={() => navigation.navigate('SignUp')}>
-              Create account
-            </Text>
+            <Text style={styles.footerLink} onPress={() => navigation.navigate('SignUp')}>{t('signIn.createAccount')}</Text>
           </Text>
         </View>
       </KeyboardAvoidingView>

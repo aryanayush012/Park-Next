@@ -5,6 +5,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { Button } from '../../components/Button';
 import { Stepper } from '../../components/Stepper';
+import { TranslationKey, useTranslation } from '../../i18n';
 import { colors, radius, spacing, typography } from '../../theme';
 import { ProviderListingsStackParamList } from '../../navigation/types';
 import { formatHHmm, formatWeekdayList, toHHmm, WEEKDAY_LABELS } from '../../utils/format';
@@ -29,6 +30,7 @@ function minutesToHHmm(minutes: number): string {
 }
 
 export function AddListingPricingAvailabilityScreen({ navigation, route }: Props) {
+  const { t } = useTranslation();
   const { draft, editingListingId } = route.params;
 
   // Every listing is owner-set flat-rate pricing — there is no metered
@@ -77,7 +79,7 @@ export function AddListingPricingAvailabilityScreen({ navigation, route }: Props
       ? `${formatWeekdayList(Array.from(selectedDays))}, ${formatHHmm(
           minutesToHHmm(fromMinutes)
         )} – ${formatHHmm(minutesToHHmm(untilMinutes))}`
-      : 'Select at least one available day.';
+      : t('addListing.selectADay');
 
   return (
     <SafeAreaView style={styles.container} edges={['top', 'bottom']}>
@@ -86,13 +88,13 @@ export function AddListingPricingAvailabilityScreen({ navigation, route }: Props
           <Ionicons name="arrow-back" size={20} color={colors.textPrimary} />
         </Pressable>
         <View>
-          <Text style={styles.headerTitle}>{editingListingId ? 'Edit Listing' : 'Add Listing'}</Text>
-          <Text style={styles.stepLabel}>Step 3 of 3 · Pricing &amp; Availability</Text>
+          <Text style={styles.headerTitle}>{editingListingId ? t('common.editListing') : t('common.addListing')}</Text>
+          <Text style={styles.stepLabel}>{t('addListing.step3')}</Text>
         </View>
       </View>
 
       <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
-        <Text style={styles.sectionTitle}>Pricing</Text>
+        <Text style={styles.sectionTitle}>{t('addListing.pricing')}</Text>
         <Text style={styles.sectionSubtitle}>
           You set a flat hourly rate — renters always know the full cost upfront.
         </Text>
@@ -110,9 +112,10 @@ export function AddListingPricingAvailabilityScreen({ navigation, route }: Props
           <Text style={styles.priceUnit}>/ hour</Text>
         </View>
 
-        <Text style={styles.sectionTitle}>Available Days</Text>
+        <Text style={styles.sectionTitle}>{t('addListing.availableDays')}</Text>
         <View style={styles.weekdayRow}>
-          {WEEKDAY_LABELS.map((label, index) => {
+          {WEEKDAY_LABELS.map((_label, index) => {
+            const label = t(`weekday.${index}` as TranslationKey);
             const isActive = selectedDays.has(index);
             return (
               <Pressable
@@ -128,9 +131,9 @@ export function AddListingPricingAvailabilityScreen({ navigation, route }: Props
           })}
         </View>
 
-        <Text style={styles.sectionTitle}>Available Hours</Text>
+        <Text style={styles.sectionTitle}>{t('addListing.availableHours')}</Text>
         <Stepper
-          label="From"
+          label={t('addListing.from')}
           valueLabel={formatHHmm(minutesToHHmm(fromMinutes))}
           onIncrement={() =>
             setFromMinutes((m) => clampToStep(m + TIME_STEP_MINUTES, MIN_MINUTES_OF_DAY, MAX_MINUTES_OF_DAY, TIME_STEP_MINUTES))
@@ -140,12 +143,19 @@ export function AddListingPricingAvailabilityScreen({ navigation, route }: Props
           }
           canDecrement={fromMinutes > MIN_MINUTES_OF_DAY}
           canIncrement={fromMinutes < untilMinutes - TIME_STEP_MINUTES}
+          edit={{
+            kind: 'time',
+            minutes: fromMinutes,
+            min: MIN_MINUTES_OF_DAY,
+            max: untilMinutes - TIME_STEP_MINUTES,
+            onChange: setFromMinutes,
+          }}
         />
 
         <View style={{ height: spacing.sm }} />
 
         <Stepper
-          label="Until"
+          label={t('addListing.until')}
           valueLabel={formatHHmm(minutesToHHmm(untilMinutes))}
           onIncrement={() =>
             setUntilMinutes((m) => clampToStep(m + TIME_STEP_MINUTES, MIN_MINUTES_OF_DAY, MAX_MINUTES_OF_DAY, TIME_STEP_MINUTES))
@@ -155,6 +165,13 @@ export function AddListingPricingAvailabilityScreen({ navigation, route }: Props
           }
           canDecrement={untilMinutes > fromMinutes + TIME_STEP_MINUTES}
           canIncrement={untilMinutes < MAX_MINUTES_OF_DAY}
+          edit={{
+            kind: 'time',
+            minutes: untilMinutes,
+            min: fromMinutes + TIME_STEP_MINUTES,
+            max: MAX_MINUTES_OF_DAY,
+            onChange: setUntilMinutes,
+          }}
         />
 
         <Text style={styles.summaryText}>{scheduleSummary}</Text>
@@ -163,7 +180,7 @@ export function AddListingPricingAvailabilityScreen({ navigation, route }: Props
       </ScrollView>
 
       <View style={styles.footer}>
-        <Button label="Continue to Review" onPress={handleContinue} disabled={!canContinue} />
+        <Button label={t('addListing.continueToReview')} onPress={handleContinue} disabled={!canContinue} />
       </View>
     </SafeAreaView>
   );

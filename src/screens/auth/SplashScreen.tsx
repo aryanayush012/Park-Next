@@ -1,6 +1,7 @@
 import React, { useEffect } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
+import { useTranslation } from '../../i18n';
 import { colors, radius, spacing, typography } from '../../theme';
 import { RootStackParamList } from '../../navigation/types';
 
@@ -9,6 +10,7 @@ type Props = NativeStackScreenProps<RootStackParamList, 'Splash'>;
 const AUTO_ADVANCE_MS = 1600;
 
 export function SplashScreen({ navigation }: Props) {
+  const { t } = useTranslation();
   useEffect(() => {
     const timer = setTimeout(() => {
       navigation.replace('Onboarding');
@@ -26,7 +28,7 @@ export function SplashScreen({ navigation }: Props) {
         <Text style={styles.logoLetter}>P</Text>
       </View>
       <Text style={styles.wordmark}>ParkNext</Text>
-      <Text style={styles.tagline}>Your spot, on demand.</Text>
+      <Text style={styles.tagline}>{t('splash.tagline')}</Text>
     </Pressable>
   );
 }
@@ -63,6 +65,7 @@ const styles = StyleSheet.create({
   logoLetter: {
     ...typography.display,
     fontSize: 40,
+    lineHeight: 52,
     color: colors.textOnPrimary,
   },
   wordmark: {

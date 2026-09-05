@@ -50,6 +50,21 @@ export function formatTimeFromISO(iso: string): string {
   return formatTime(new Date(iso));
 }
 
+/**
+ * "2:30 – 6:30 PM" for a booking that stays either side of midday, and
+ * "11:30 AM – 1:30 PM" when it straddles it.
+ *
+ * The shared meridiem is printed once because this sits in a card's fact
+ * row next to the cost and arrival code, where "2:30 PM – 6:30 PM" is wide
+ * enough to truncate on a small screen.
+ */
+export function formatTimeRangeShort(startIso: string, endIso: string): string {
+  const start = formatTimeFromISO(startIso);
+  const end = formatTimeFromISO(endIso);
+  const sharesMeridiem = start.slice(-2) === end.slice(-2);
+  return sharesMeridiem ? `${start.slice(0, -3)} – ${end}` : `${start} – ${end}`;
+}
+
 export function isSameDay(a: Date, b: Date): boolean {
   return (
     a.getFullYear() === b.getFullYear() &&

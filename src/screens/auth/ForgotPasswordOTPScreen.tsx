@@ -5,6 +5,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { Button } from '../../components/Button';
 import { OTPInput } from '../../components/OTPInput';
+import { useTranslation } from '../../i18n';
 import { colors, spacing, typography } from '../../theme';
 import { RootStackParamList } from '../../navigation/types';
 import { isSupabaseConfigured, supabase } from '../../data/supabaseClient';
@@ -16,6 +17,7 @@ const RESEND_COOLDOWN_SECONDS = 30;
 const MOCK_VERIFY_DELAY_MS = 900;
 
 export function ForgotPasswordOTPScreen({ navigation, route }: Props) {
+  const { t } = useTranslation();
   const { beginPasswordRecovery } = useAuth();
   const { email } = route.params;
   const [code, setCode] = useState('');
@@ -61,7 +63,7 @@ export function ForgotPasswordOTPScreen({ navigation, route }: Props) {
 
   const handleVerify = async () => {
     if (code.length !== 6) {
-      setError('Enter the 6-digit code we sent you.');
+      setError(t('forgotOtp.codeRequired'));
       return;
     }
 
@@ -109,7 +111,7 @@ export function ForgotPasswordOTPScreen({ navigation, route }: Props) {
       </Pressable>
 
       <View style={styles.content}>
-        <Text style={styles.title}>Enter reset code</Text>
+        <Text style={styles.title}>{t('forgotOtp.title')}</Text>
         <Text style={styles.subtitle}>We sent a 6-digit code to {email}</Text>
 
         <View style={styles.otpWrap}>
@@ -128,14 +130,14 @@ export function ForgotPasswordOTPScreen({ navigation, route }: Props) {
               onPress={handleResend}
               suppressHighlighting={isResending}
             >
-              {isResending ? 'Resending…' : "Didn't get a code? Resend now"}
+              {isResending ? t('forgotOtp.resending') : t('forgotOtp.resend')}
             </Text>
           )}
         </View>
       </View>
 
       <View style={styles.footer}>
-        <Button label="Verify Code" onPress={handleVerify} loading={isVerifying} />
+        <Button label={t('forgotOtp.verify')} onPress={handleVerify} loading={isVerifying} />
       </View>
     </SafeAreaView>
   );

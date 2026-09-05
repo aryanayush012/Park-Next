@@ -90,6 +90,19 @@ export type BookingStatus =
    * decision) purely so the renter can be told the actual reason. */
   | 'expired';
 
+/**
+ * Booking states that still involve a real renter, so a listing carrying one
+ cannot be deleted — see `DataSource.deleteListing`.
+ */
+export const BLOCKING_BOOKING_STATUSES: BookingStatus[] = ['pending', 'booked', 'in_progress'];
+
+/**
+ * Thrown by `deleteListing` when the spot still has a booking in one of the
+ * states above. A named value so a screen can tell this apart from a genuine
+ * failure and explain it, rather than showing "try again".
+ */
+export const LISTING_HAS_ACTIVE_BOOKINGS = 'listing-has-active-bookings';
+
 export interface RecurringSchedule {
   /** 0 = Sunday ... 6 = Saturday, matches Date#getDay(). */
   days: number[];
@@ -155,6 +168,9 @@ export interface RenterProfile {
   id: string;
   name: string;
   rating: number;
+  /** How many reviews `rating` averages over — 0 when nobody has reviewed
+   * this person yet, in which case `rating` is a meaningless 0 too. */
+  ratingCount: number;
   phone: string;
   /** Optional profile photo — never required at signup, unlike name/phone. */
   avatarUrl?: string;

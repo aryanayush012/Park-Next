@@ -1,7 +1,8 @@
 import React, { useCallback, useState } from 'react';
-import { FlatList, Pressable, StyleSheet, Switch, Text, View } from 'react-native';
+import { Alert, FlatList, Pressable, StyleSheet, Switch, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useFocusEffect } from '@react-navigation/native';
+import { Ionicons } from '@expo/vector-icons';
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { ListingCard } from '../../components/ListingCard';
 import { colors, radius, spacing, typography } from '../../theme';
@@ -9,13 +10,15 @@ import { ProviderListingsStackParamList } from '../../navigation/types';
 import { dataSource } from '../../data/dataSource';
 import { AMENITIES } from '../../data/mockData';
 import { useAuth } from '../../navigation/AuthContext';
-import { Listing } from '../../types';
+import { Listing, LISTING_HAS_ACTIVE_BOOKINGS } from '../../types';
 import { mapListingToDraft } from './addListingDraft';
+import { useTranslation } from '../../i18n';
 
 type Props = NativeStackScreenProps<ProviderListingsStackParamList, 'MyListings'>;
 
 export function MyListingsScreen({ navigation }: Props) {
   const { userId } = useAuth();
+  const { t } = useTranslation();
   const [listings, setListings] = useState<Listing[]>([]);
 
   const load = useCallback(async () => {
@@ -41,6 +44,39 @@ export function MyListingsScreen({ navigation }: Props) {
     }
   };
 
+  const handleDelete = (listing: Listing) => {
+    Alert.alert(
+      t('listings.deleteTitle'),
+      t('listings.deleteBody', { title: listing.title }),
+      [
+        { text: t('common.cancel'), style: 'cancel' },
+        {
+          text: t('common.delete'),
+          style: 'destructive',
+          onPress: async () => {
+            try {
+              await dataSource.deleteListing(listing.id);
+              setListings((prev) => prev.filter((l) => l.id !== listing.id));
+            } catch (error) {
+              const hasLiveBookings =
+                error instanceof Error && error.message === LISTING_HAS_ACTIVE_BOOKINGS;
+              Alert.alert(
+                t(
+                  hasLiveBookings
+                    ? 'listings.deleteBlockedTitle'
+                    : 'listings.deleteFailedTitle'
+                ),
+                t(
+                  hasLiveBookings ? 'listings.deleteBlockedBody' : 'listings.deleteFailedBody'
+                )
+              );
+            }
+          },
+        },
+      ]
+    );
+  };
+
   const handleEdit = (listing: Listing) => {
     navigation.navigate('AddListingDetails', {
       draft: mapListingToDraft(listing),
@@ -52,16 +88,19 @@ export function MyListingsScreen({ navigation }: Props) {
     <SafeAreaView style={styles.container} edges={['top', 'bottom']}>
       <View style={styles.header}>
         <View>
-          <Text style={styles.title}>My Listings</Text>
+          <Text style={styles.title}>{t('listings.title')}</Text>
           <Text style={styles.subtitle}>
-            {listings.length} listing{listings.length === 1 ? '' : 's'} · {activeCount} active
+            {t(listings.length === 1 ? 'listings.countOne' : 'listings.countOther', {
+              count: listings.length,
+              active: activeCount,
+            })}
           </Text>
         </View>
         <Pressable
           style={styles.addButton}
           onPress={() => navigation.navigate('AddListingDetails', {})}
         >
-          <Text style={styles.addButtonText}>+ Add</Text>
+          <Text style={styles.addButtonText}>{t('listings.add')}</Text>
         </Pressable>
       </View>
 
@@ -80,11 +119,10 @@ export function MyListingsScreen({ navigation }: Props) {
                   trackColor={{ false: colors.surfaceBorder, true: colors.primaryMuted }}
                   thumbColor={item.isActive ? colors.primary : colors.textMuted}
                 />
-                <Text style={styles.rowHeaderLabel}>{item.isActive ? 'Active' : 'Inactive'}</Text>
+                <Text style={styles.rowHeaderLabel}>
+                  {t(item.isActive ? 'listings.active' : 'listings.inactive')}
+                </Text>
               </View>
-              <Pressable onPress={() => handleEdit(item)} hitSlop={8}>
-                <Text style={styles.editLink}>Edit</Text>
-              </Pressable>
             </View>
 
             <ListingCard
@@ -98,13 +136,38 @@ export function MyListingsScreen({ navigation }: Props) {
               ratingCount={item.ratingCount}
               status={item.status}
               amenities={item.amenities.map((key) => AMENITIES[key])}
+              // Deleting is only offered once a listing is inactive, so
+              // taking it off the market is always the first step and the
+              // irreversible action can never be the quicker tap.
+              topRightAction={
+                item.isActive ? null : (
+                  <Pressable
+                    onPress={() => handleDelete(item)}
+                    hitSlop={8}
+                    accessibilityRole="button"
+                    accessibilityLabel={t('listings.deleteA11y', { title: item.title })}
+                    style={styles.deleteButton}
+                  >
+                    <Ionicons name="trash-outline" size={18} color={colors.error} />
+                  </Pressable>
+                )
+              }
+              bottomRightAction={
+                <Pressable
+                  onPress={() => handleEdit(item)}
+                  hitSlop={8}
+                  accessibilityRole="button"
+                  accessibilityLabel={t('listings.editA11y', { title: item.title })}
+                  style={styles.editButton}
+                >
+                  <Ionicons name="create-outline" size={18} color={colors.primary} />
+                </Pressable>
+              }
             />
           </View>
         )}
         ListEmptyComponent={
-          <Text style={styles.emptyText}>
-            You haven't listed a spot yet. Tap "+ Add" to create your first listing.
-          </Text>
+          <Text style={styles.emptyText}>{t('listings.empty')}</Text>
         }
       />
     </SafeAreaView>
@@ -164,9 +227,23 @@ const styles = StyleSheet.create({
     ...typography.bodyMedium,
     color: colors.textPrimary,
   },
-  editLink: {
-    ...typography.bodyMedium,
-    color: colors.primary,
+  deleteButton: {
+    width: 32,
+    height: 32,
+    borderRadius: radius.full,
+    // Sits on the listing photo, so it needs a scrim of its own rather
+    // than the translucent error tint used against a solid surface.
+    backgroundColor: colors.overlay,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  editButton: {
+    width: 32,
+    height: 32,
+    borderRadius: radius.full,
+    backgroundColor: colors.primaryMuted,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   emptyText: {
     ...typography.body,

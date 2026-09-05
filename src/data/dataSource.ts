@@ -6,8 +6,11 @@ import {
   Listing,
   RenterProfile,
   Review,
+  BLOCKING_BOOKING_STATUSES,
+  LISTING_HAS_ACTIVE_BOOKINGS,
 } from '../types';
 import { CURRENT_USER_ID, MOCK_BOOKINGS, MOCK_LISTINGS, MOCK_RENTERS } from './mockData';
+
 import { isSupabaseConfigured } from './supabaseClient';
 import { SupabaseDataSource } from './SupabaseDataSource';
 import { generateVerificationCode } from '../utils/verificationCode';
@@ -34,6 +37,17 @@ export interface DataSource {
   createListing(input: CreateListingInput): Promise<Listing>;
   updateListing(id: string, updates: Partial<CreateListingInput>): Promise<Listing>;
   setListingActive(id: string, isActive: boolean): Promise<Listing>;
+  /**
+   * Permanently removes a listing.
+   *
+   * Refuses while the listing still has a live booking on it, throwing
+   * `LISTING_HAS_ACTIVE_BOOKINGS`. That guard is not cosmetic:
+   * `bookings.listing_id` is declared `on delete cascade` (migration 0004),
+   * so Postgres would happily delete a renter's confirmed booking along
+   * with the spot, with no warning to either side. Deactivating a listing
+   * (`setListingActive`) is the reversible way to take it off the market.
+   */
+  deleteListing(id: string): Promise<void>;
 
   getBookingsForUser(userId: string): Promise<Booking[]>;
   getBookingById(id: string): Promise<Booking | undefined>;
@@ -179,6 +193,22 @@ class MockDataSource implements DataSource {
     const listing = this.requireListing(id);
     listing.isActive = isActive;
     return listing;
+  }
+
+  async deleteListing(id: string): Promise<void> {
+    await delay(250);
+    this.requireListing(id);
+
+    const hasLiveBooking = this.bookings.some(
+      (booking) =>
+        booking.listingId === id && BLOCKING_BOOKING_STATUSES.includes(booking.status)
+    );
+    if (hasLiveBooking) throw new Error(LISTING_HAS_ACTIVE_BOOKINGS);
+
+    this.listings = this.listings.filter((listing) => listing.id !== id);
+    // Mirrors the database's `on delete cascade` so mock mode doesn't leave
+    // finished bookings pointing at a listing that no longer exists.
+    this.bookings = this.bookings.filter((booking) => booking.listingId !== id);
   }
 
   async getBookingsForUser(_userId: string): Promise<Booking[]> {

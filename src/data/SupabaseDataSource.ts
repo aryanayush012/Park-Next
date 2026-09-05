@@ -13,6 +13,8 @@ import {
   RenterProfile,
   Review,
   VehicleType,
+  BLOCKING_BOOKING_STATUSES,
+  LISTING_HAS_ACTIVE_BOOKINGS,
 } from '../types';
 import type { DataSource } from './dataSource';
 import { computeResponseDeadline } from '../utils/responseDeadline';
@@ -335,6 +337,23 @@ export class SupabaseDataSource implements DataSource {
     return rowToListing(data as unknown as ListingRow);
   }
 
+  async deleteListing(id: string): Promise<void> {
+    // Checked before deleting rather than relying on the database to stop
+    // us: `bookings.listing_id` cascades (0004), so Postgres would delete a
+    // renter's confirmed booking along with the spot instead of raising.
+    const { data: blocking, error: checkError } = await supabase
+      .from('bookings')
+      .select('id')
+      .eq('listing_id', id)
+      .in('status', BLOCKING_BOOKING_STATUSES)
+      .limit(1);
+    if (checkError) throw checkError;
+    if (blocking && blocking.length > 0) throw new Error(LISTING_HAS_ACTIVE_BOOKINGS);
+
+    const { error } = await supabase.from('listings').delete().eq('id', id);
+    if (error) throw error;
+  }
+
   async getBookingsForUser(userId: string): Promise<Booking[]> {
     const { data, error } = await supabase
       .from('bookings')
@@ -498,6 +517,7 @@ export class SupabaseDataSource implements DataSource {
       name: data.name || 'ParkNext User',
       phone: data.phone || '',
       rating: ratingRow ? Number(ratingRow.rating) || 0 : 0,
+      ratingCount: ratingRow ? ratingRow.rating_count : 0,
       avatarUrl: data.avatar_url || undefined,
     };
   }

@@ -4,11 +4,15 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { Button } from '../../components/Button';
+import { PhoneRequiredDialog } from '../../components/PhoneRequiredDialog';
 import { Stepper } from '../../components/Stepper';
+import { useTranslation } from '../../i18n';
 import { colors, radius, spacing, typography } from '../../theme';
 import { RenterHomeStackParamList } from '../../navigation/types';
 import { dataSource } from '../../data/dataSource';
+import { isSupabaseConfigured, supabase } from '../../data/supabaseClient';
 import { useAuth } from '../../navigation/AuthContext';
+import { useUserProfile } from '../../navigation/UserProfileContext';
 import {
   clampToStep,
   formatDurationLabel,
@@ -25,11 +29,14 @@ import { Listing } from '../../types';
 type Props = NativeStackScreenProps<RenterHomeStackParamList, 'BookingFlow'>;
 
 export function BookingFlowScreen({ navigation, route }: Props) {
+  const { t } = useTranslation();
   const { userId } = useAuth();
+  const { phone } = useUserProfile();
   const { listingId, bookingType: mode, schedule } = route.params;
   const [listing, setListing] = useState<Listing | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [bookingError, setBookingError] = useState<string | undefined>(undefined);
+  const [phoneGateVisible, setPhoneGateVisible] = useState(false);
 
   // Advance mode — pre-filled from whatever date/time was already chosen on
   // the Home/Map search (see ScheduleSelection), so this screen never asks
@@ -64,8 +71,18 @@ export function BookingFlowScreen({ navigation, route }: Props) {
 
   const canConfirm = Boolean(listing) && !isSubmitting;
 
-  const handleConfirm = async () => {
+  /** Gate the booking on having a mobile number, then hand off to `submitBooking`. */
+  const handleConfirm = () => {
     if (!listing || !canConfirm) return;
+    if (!phone.trim()) {
+      setPhoneGateVisible(true);
+      return;
+    }
+    submitBooking();
+  };
+
+  const submitBooking = async () => {
+    if (!listing) return;
     setIsSubmitting(true);
     setBookingError(undefined);
 
@@ -95,6 +112,14 @@ export function BookingFlowScreen({ navigation, route }: Props) {
         totalPrice,
         pricingModel: listing.pricingModel,
       });
+      // Ask the backend to push the owner. Deliberately not awaited and
+      // never fatal: the booking already exists, and the owner's in-app
+      // Requests list does not depend on this succeeding.
+      if (isSupabaseConfigured) {
+        supabase.functions
+          .invoke('notify-booking-request', { body: { bookingId: booking.id } })
+          .catch(() => {});
+      }
       navigation.replace('BookingConfirmation', { bookingId: booking.id, justBooked: true });
     } catch (error) {
       // The database itself is the real source of truth for "is this slot
@@ -111,10 +136,10 @@ export function BookingFlowScreen({ navigation, route }: Props) {
         Boolean(error) && typeof error === 'object' && (error as { code?: string }).code === '23P01';
       setBookingError(
         isOverlapConflict
-          ? 'This spot just got booked for that time by someone else. Pick a different time or date and try again.'
+          ? t('flow.overlap')
           : error instanceof Error
           ? error.message
-          : 'Something went wrong creating your booking. Please try again.'
+          : t('flow.failed')
       );
     } finally {
       setIsSubmitting(false);
@@ -127,7 +152,7 @@ export function BookingFlowScreen({ navigation, route }: Props) {
         <Pressable onPress={() => navigation.goBack()} hitSlop={12} style={styles.backButton}>
           <Ionicons name="arrow-back" size={20} color={colors.textPrimary} />
         </Pressable>
-        <Text style={styles.headerTitle}>Choose Date & Time</Text>
+        <Text style={styles.headerTitle}>{t('flow.title')}</Text>
       </View>
 
       <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
@@ -140,7 +165,7 @@ export function BookingFlowScreen({ navigation, route }: Props) {
 
         {mode === 'advance' ? (
           <View style={styles.section}>
-            <Text style={styles.sectionLabel}>Select Date</Text>
+            <Text style={styles.sectionLabel}>{t('flow.selectDate')}</Text>
             <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.dateRow}>
               {days.map(({ offset, date }) => {
                 const isActive = offset === dateOffset;
@@ -161,9 +186,9 @@ export function BookingFlowScreen({ navigation, route }: Props) {
               })}
             </ScrollView>
 
-            <Text style={styles.sectionLabel}>Start Time</Text>
+            <Text style={styles.sectionLabel}>{t('home.startTime')}</Text>
             <Stepper
-              label="Starts at"
+              label={t('common.startsAt')}
               valueLabel={minutesToLabel(advanceStartMinutes)}
               onIncrement={() =>
                 setAdvanceStartMinutes((m) =>
@@ -177,12 +202,19 @@ export function BookingFlowScreen({ navigation, route }: Props) {
               }
               canDecrement={advanceStartMinutes > MIN_MINUTES_OF_DAY}
               canIncrement={advanceStartMinutes < MAX_MINUTES_OF_DAY}
+              edit={{
+                kind: 'time',
+                minutes: advanceStartMinutes,
+                min: MIN_MINUTES_OF_DAY,
+                max: MAX_MINUTES_OF_DAY,
+                onChange: setAdvanceStartMinutes,
+              }}
             />
 
             <View style={{ height: spacing.sm }} />
 
             <Stepper
-              label="Duration"
+              label={t('common.duration')}
               valueLabel={formatDurationLabel(durationMinutes)}
               onIncrement={() =>
                 setDurationMinutes((m) => clampToStep(m + TIME_STEP_MINUTES, MIN_DURATION_MINUTES, MAX_DURATION_MINUTES, TIME_STEP_MINUTES))
@@ -192,6 +224,13 @@ export function BookingFlowScreen({ navigation, route }: Props) {
               }
               canDecrement={durationMinutes > MIN_DURATION_MINUTES}
               canIncrement={durationMinutes < MAX_DURATION_MINUTES}
+              edit={{
+                kind: 'duration',
+                minutes: durationMinutes,
+                min: MIN_DURATION_MINUTES,
+                max: MAX_DURATION_MINUTES,
+                onChange: setDurationMinutes,
+              }}
             />
 
             <Text style={styles.endsAtText}>Ends at {minutesToLabel(advanceEndMinutes)}</Text>
@@ -200,7 +239,7 @@ export function BookingFlowScreen({ navigation, route }: Props) {
               rows={[
                 ['Duration', formatDurationLabel(durationMinutes)],
                 ['Rate', `${currency}${rate}/hr`],
-                ['Estimated Total', `${currency}${advanceTotal}`],
+                [t('common.estimatedTotal'), `${currency}${advanceTotal}`],
               ]}
               highlightLast
             />
@@ -209,15 +248,15 @@ export function BookingFlowScreen({ navigation, route }: Props) {
 
         {mode === 'instant' ? (
           <View style={styles.section}>
-            <Text style={styles.sectionLabel}>Start</Text>
+            <Text style={styles.sectionLabel}>{t('flow.start')}</Text>
             <View style={styles.startsNowBanner}>
               <Ionicons name="flash" size={16} color={colors.primary} />
-              <Text style={styles.startsNowText}>Starts now</Text>
+              <Text style={styles.startsNowText}>{t('detail.startsNow')}</Text>
             </View>
 
-            <Text style={styles.sectionLabel}>Duration</Text>
+            <Text style={styles.sectionLabel}>{t('common.duration')}</Text>
             <Stepper
-              label="Duration"
+              label={t('common.duration')}
               valueLabel={formatDurationLabel(instantDurationMinutes)}
               onIncrement={() =>
                 setInstantDurationMinutes((m) => clampToStep(m + TIME_STEP_MINUTES, MIN_DURATION_MINUTES, MAX_DURATION_MINUTES, TIME_STEP_MINUTES))
@@ -227,13 +266,20 @@ export function BookingFlowScreen({ navigation, route }: Props) {
               }
               canDecrement={instantDurationMinutes > MIN_DURATION_MINUTES}
               canIncrement={instantDurationMinutes < MAX_DURATION_MINUTES}
+              edit={{
+                kind: 'duration',
+                minutes: instantDurationMinutes,
+                min: MIN_DURATION_MINUTES,
+                max: MAX_DURATION_MINUTES,
+                onChange: setInstantDurationMinutes,
+              }}
             />
 
             <SummaryBox
               rows={[
                 ['Duration', formatDurationLabel(instantDurationMinutes)],
                 ['Rate', `${currency}${rate}/hr`],
-                ['Estimated Total', `${currency}${instantTotal}`],
+                [t('common.estimatedTotal'), `${currency}${instantTotal}`],
               ]}
               highlightLast
             />
@@ -244,12 +290,22 @@ export function BookingFlowScreen({ navigation, route }: Props) {
       <View style={styles.footer}>
         {bookingError ? <Text style={styles.bookingErrorText}>{bookingError}</Text> : null}
         <Button
-          label="Continue to Confirm"
+          label={t('flow.continue')}
           onPress={handleConfirm}
           disabled={!canConfirm}
           loading={isSubmitting}
         />
       </View>
+
+      <PhoneRequiredDialog
+        visible={phoneGateVisible}
+        reason="book"
+        onCancel={() => setPhoneGateVisible(false)}
+        onSaved={() => {
+          setPhoneGateVisible(false);
+          submitBooking();
+        }}
+      />
     </SafeAreaView>
   );
 }

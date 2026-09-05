@@ -4,6 +4,7 @@ import { View } from 'react-native';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { NavigationContainer, DarkTheme, Theme as NavTheme } from '@react-navigation/native';
+import { navigationRef } from './src/navigation/navigationRef';
 import * as SplashScreen from 'expo-splash-screen';
 import {
   useFonts,
@@ -56,7 +57,7 @@ export default function App() {
       <SafeAreaProvider>
         <View style={{ flex: 1, backgroundColor: colors.background }}>
           <StatusBar style="light" />
-          <NavigationContainer theme={navigationTheme}>
+          <NavigationContainer ref={navigationRef} theme={navigationTheme}>
             <RootNavigator />
           </NavigationContainer>
         </View>

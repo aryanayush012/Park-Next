@@ -52,6 +52,7 @@ const styles = StyleSheet.create({
   label: {
     ...typography.bodyMedium,
     color: colors.textSecondary,
+    flexShrink: 1,
   },
   labelSelected: {
     color: colors.textOnPrimary,

@@ -7,6 +7,7 @@ import { Button } from '../../components/Button';
 import { StarRating } from '../../components/StarRating';
 import { StarRatingInput } from '../../components/StarRatingInput';
 import { StatusBadge } from '../../components/StatusBadge';
+import { useTranslation } from '../../i18n';
 import { colors, radius, spacing, typography } from '../../theme';
 import { RenterBookingsStackParamList } from '../../navigation/types';
 import { dataSource } from '../../data/dataSource';
@@ -21,6 +22,7 @@ import { Booking, Listing, Review } from '../../types';
 type Props = NativeStackScreenProps<RenterBookingsStackParamList, 'BookingDetail'>;
 
 export function BookingDetailScreen({ navigation, route }: Props) {
+  const { t } = useTranslation();
   const { bookingId } = route.params;
   const { userId } = useAuth();
   const [booking, setBooking] = useState<Booking | null>(null);
@@ -60,7 +62,7 @@ export function BookingDetailScreen({ navigation, route }: Props) {
       });
       setMyReview(review);
     } catch (err) {
-      setSubmitError(err instanceof Error ? err.message : 'Something went wrong. Try again.');
+      setSubmitError(err instanceof Error ? err.message : t('common.tryAgain'));
     } finally {
       setSubmitting(false);
     }
@@ -69,7 +71,7 @@ export function BookingDetailScreen({ navigation, route }: Props) {
   if (!booking || !listing) {
     return (
       <SafeAreaView style={styles.loadingContainer}>
-        <Text style={styles.loadingText}>Loading booking…</Text>
+        <Text style={styles.loadingText}>{t('common.loadingBooking')}</Text>
       </SafeAreaView>
     );
   }
@@ -80,7 +82,7 @@ export function BookingDetailScreen({ navigation, route }: Props) {
         <Pressable onPress={() => navigation.goBack()} hitSlop={12} style={styles.backButton}>
           <Ionicons name="arrow-back" size={20} color={colors.textPrimary} />
         </Pressable>
-        <Text style={styles.headerTitle}>Booking Summary</Text>
+        <Text style={styles.headerTitle}>{t('summary.title')}</Text>
       </View>
 
       <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
@@ -93,19 +95,19 @@ export function BookingDetailScreen({ navigation, route }: Props) {
         <Text style={styles.address}>{listing.address}</Text>
 
         <View style={styles.card}>
-          <SummaryRow label="Date & Time" value={formatDateTimeRange(booking.startTime, booking.endTime)} />
+          <SummaryRow label={t('common.dateTime')} value={formatDateTimeRange(booking.startTime, booking.endTime)} />
           {booking.checkInAt ? (
-            <SummaryRow label="Checked in" value={formatTimeFromISO(booking.checkInAt)} />
+            <SummaryRow label={t('summary.checkedIn')} value={formatTimeFromISO(booking.checkInAt)} />
           ) : null}
           {booking.checkOutAt ? (
-            <SummaryRow label="Checked out" value={formatTimeFromISO(booking.checkOutAt)} />
+            <SummaryRow label={t('summary.checkedOut')} value={formatTimeFromISO(booking.checkOutAt)} />
           ) : null}
           <SummaryRow
-            label="Pricing"
-            value={booking.pricingModel === 'metered' ? 'Metered' : 'Flat rate'}
+            label={t('summary.pricing')}
+            value={booking.pricingModel === 'metered' ? t('common.metered') : t('common.flatRate')}
           />
           <SummaryRow
-            label="Amount Paid"
+            label={t('summary.amountPaid')}
             value={`${listing.currency}${booking.totalPrice}`}
             highlight
           />
@@ -113,7 +115,7 @@ export function BookingDetailScreen({ navigation, route }: Props) {
 
         {booking.status === 'completed' ? (
           <>
-            <Text style={styles.sectionTitle}>Your Review</Text>
+            <Text style={styles.sectionTitle}>{t('common.yourReview')}</Text>
             <View style={styles.card}>
               {myReview === undefined ? null : myReview ? (
                 <>
@@ -121,23 +123,23 @@ export function BookingDetailScreen({ navigation, route }: Props) {
                   {myReview.comment ? (
                     <Text style={styles.reviewComment}>{myReview.comment}</Text>
                   ) : null}
-                  <Text style={styles.reviewSubmittedNote}>Thanks for rating your host!</Text>
+                  <Text style={styles.reviewSubmittedNote}>{t('common.thanksHost')}</Text>
                 </>
               ) : (
                 <>
-                  <Text style={styles.reviewPrompt}>How was your experience with the host?</Text>
+                  <Text style={styles.reviewPrompt}>{t('common.reviewHostPrompt')}</Text>
                   <StarRatingInput value={ratingInput} onChange={setRatingInput} />
                   <TextInput
                     style={styles.commentInput}
                     value={comment}
                     onChangeText={setComment}
-                    placeholder="Add a comment (optional)"
+                    placeholder={t('common.addComment')}
                     placeholderTextColor={colors.textMuted}
                     multiline
                   />
                   {submitError ? <Text style={styles.reviewErrorText}>{submitError}</Text> : null}
                   <Button
-                    label="Submit Review"
+                    label={t('common.submitReview')}
                     onPress={handleSubmitReview}
                     loading={submitting}
                     disabled={ratingInput === 0}

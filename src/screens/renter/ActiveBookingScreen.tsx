@@ -1,12 +1,14 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import { ActivityIndicator, Linking, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { ScreenHeader } from '../../components/ScreenHeader';
 import { Ionicons } from '@expo/vector-icons';
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { Button } from '../../components/Button';
 import { StarRating } from '../../components/StarRating';
 import { StarRatingInput } from '../../components/StarRatingInput';
 import { StatusBadge } from '../../components/StatusBadge';
+import { useTranslation } from '../../i18n';
 import { colors, radius, spacing, typography } from '../../theme';
 import { SharedBookingParamList } from '../../navigation/types';
 import { dataSource } from '../../data/dataSource';
@@ -43,6 +45,7 @@ const TEN_MINUTES_MS = 10 * 60 * 1000;
 const EARLY_ARRIVAL_CODE_REVEAL_MS = 15 * 60 * 1000;
 
 export function ActiveBookingScreen({ navigation, route }: Props) {
+  const { t } = useTranslation();
   const { bookingId } = route.params;
   const { userId } = useAuth();
   const [booking, setBooking] = useState<Booking | null>(null);
@@ -156,7 +159,7 @@ export function ActiveBookingScreen({ navigation, route }: Props) {
       });
       setMyReview(review);
     } catch (err) {
-      setReviewSubmitError(err instanceof Error ? err.message : 'Something went wrong. Try again.');
+      setReviewSubmitError(err instanceof Error ? err.message : t('common.tryAgain'));
     } finally {
       setSubmittingReview(false);
     }
@@ -165,7 +168,7 @@ export function ActiveBookingScreen({ navigation, route }: Props) {
   if (!booking || !listing) {
     return (
       <SafeAreaView style={styles.loadingContainer}>
-        <Text style={styles.loadingText}>Loading booking…</Text>
+        <Text style={styles.loadingText}>{t('common.loadingBooking')}</Text>
       </SafeAreaView>
     );
   }
@@ -224,6 +227,7 @@ export function ActiveBookingScreen({ navigation, route }: Props) {
 
   return (
     <SafeAreaView style={styles.container} edges={['top', 'bottom']}>
+      <ScreenHeader onBack={navigation.canGoBack() ? () => navigation.goBack() : undefined} />
       <ScrollView
         style={styles.scrollArea}
         contentContainerStyle={styles.content}
@@ -236,24 +240,24 @@ export function ActiveBookingScreen({ navigation, route }: Props) {
         {booking.status === 'booked' ? (
           canRevealArrivalCode ? (
             <View style={styles.centerBlock}>
-              <Text style={styles.stateTitle}>You're on your way</Text>
+              <Text style={styles.stateTitle}>{t('active.onYourWay')}</Text>
               <Text style={styles.stateSubtitle}>
                 Show this code to the host when you arrive at {listing.title}. The booking starts
                 automatically once they enter it on their phone.
               </Text>
               <View style={styles.codeCard}>
-                <Text style={styles.codeLabel}>Your Arrival Code</Text>
+                <Text style={styles.codeLabel}>{t('active.arrivalCode')}</Text>
                 <Text style={styles.codeText}>{booking.verificationCode}</Text>
               </View>
               <View style={styles.waitingRow}>
                 <ActivityIndicator color={colors.secondary} />
-                <Text style={styles.waitingText}>Waiting for host to confirm…</Text>
+                <Text style={styles.waitingText}>{t('active.waitingHost')}</Text>
               </View>
             </View>
           ) : (
             <View style={styles.centerBlock}>
               <Ionicons name="time-outline" size={40} color={colors.secondary} />
-              <Text style={styles.stateTitle}>Your booking hasn't started yet</Text>
+              <Text style={styles.stateTitle}>{t('active.notStarted')}</Text>
               <Text style={styles.stateSubtitle}>
                 {listing.title} is reserved for you starting {formatRelativeDate(booking.startTime)}{' '}
                 at {formatTimeFromISO(booking.startTime)}. Come back closer to that time — your
@@ -265,7 +269,7 @@ export function ActiveBookingScreen({ navigation, route }: Props) {
 
         {booking.status === 'in_progress' ? (
           <View style={styles.centerBlock}>
-            <Text style={styles.timerLabel}>{isOverdue ? "Time's Up" : 'Time Remaining'}</Text>
+            <Text style={styles.timerLabel}>{isOverdue ? t('active.timesUp') : t('active.timeRemaining')}</Text>
             <View style={styles.timerRing}>
               <Text style={styles.timerText}>{formatElapsedClock(remainingMs)}</Text>
             </View>
@@ -274,7 +278,7 @@ export function ActiveBookingScreen({ navigation, route }: Props) {
                 <View style={styles.endingSoonHeader}>
                   <Ionicons name="notifications" size={16} color={colors.secondary} />
                   <Text style={styles.endingSoonTitle}>
-                    {isOverdue ? "You're past your booked time" : 'Ending in under 10 minutes'}
+                    {isOverdue ? t('active.pastBookedTime') : t('active.endingSoon')}
                   </Text>
                 </View>
                 <Text style={styles.endingSoonSubtitle}>
@@ -283,14 +287,14 @@ export function ActiveBookingScreen({ navigation, route }: Props) {
                 </Text>
                 <View style={styles.extendRow}>
                   <Button
-                    label="+15 min"
+                    label={t('active.extend15')}
                     variant="secondary"
                     onPress={() => handleExtend(15)}
                     loading={isExtending}
                     style={styles.extendButton}
                   />
                   <Button
-                    label="+30 min"
+                    label={t('active.extend30')}
                     variant="secondary"
                     onPress={() => handleExtend(30)}
                     loading={isExtending}
@@ -304,7 +308,7 @@ export function ActiveBookingScreen({ navigation, route }: Props) {
 
         {booking.status === 'completed' ? (
           <View style={styles.centerBlock}>
-            <Text style={styles.stateTitle}>Booking Completed</Text>
+            <Text style={styles.stateTitle}>{t('active.completed')}</Text>
             <Text style={styles.stateSubtitle}>
               Thanks for parking with ParkNext. Settle up directly with the host.
             </Text>
@@ -315,23 +319,23 @@ export function ActiveBookingScreen({ navigation, route }: Props) {
           <Text style={styles.cardTitle}>{listing.title}</Text>
 
           {booking.checkInAt ? (
-            <SummaryRow label="Checked in at" value={formatTimeFromISO(booking.checkInAt)} />
+            <SummaryRow label={t('active.checkedInAt')} value={formatTimeFromISO(booking.checkInAt)} />
           ) : null}
           {booking.checkOutAt ? (
-            <SummaryRow label="Checked out at" value={formatTimeFromISO(booking.checkOutAt)} />
+            <SummaryRow label={t('active.checkedOutAt')} value={formatTimeFromISO(booking.checkOutAt)} />
           ) : null}
 
           <SummaryRow
-            label="Rate"
+            label={t('active.rate')}
             value={
               booking.pricingModel === 'metered'
                 ? `${listing.currency}${listing.pricePerHour}/hr`
-                : 'Flat rate'
+                : t('common.flatRate')
             }
           />
 
           <SummaryRow
-            label={booking.status === 'completed' ? 'Amount Owed' : 'Current Estimate'}
+            label={booking.status === 'completed' ? t('active.amountOwed') : t('active.currentEstimate')}
             value={`${listing.currency}${currentEstimate}`}
             highlight
           />
@@ -352,13 +356,13 @@ export function ActiveBookingScreen({ navigation, route }: Props) {
               <Text style={styles.hostName}>{host.name}</Text>
               <Text style={styles.hostPhone}>{host.phone}</Text>
             </View>
-            <Button label="Call" variant="secondary" onPress={handleContactHost} style={styles.callButton} />
+            <Button label={t('common.call')} variant="secondary" onPress={handleContactHost} style={styles.callButton} />
           </View>
         ) : null}
 
         {booking.status === 'completed' ? (
           <>
-            <Text style={styles.sectionTitle}>Your Review</Text>
+            <Text style={styles.sectionTitle}>{t('common.yourReview')}</Text>
             <View style={styles.card}>
               {myReview === undefined ? (
                 <ActivityIndicator color={colors.secondary} />
@@ -368,17 +372,17 @@ export function ActiveBookingScreen({ navigation, route }: Props) {
                   {myReview.comment ? (
                     <Text style={styles.reviewComment}>{myReview.comment}</Text>
                   ) : null}
-                  <Text style={styles.reviewSubmittedNote}>Thanks for rating your host!</Text>
+                  <Text style={styles.reviewSubmittedNote}>{t('common.thanksHost')}</Text>
                 </>
               ) : (
                 <>
-                  <Text style={styles.reviewPrompt}>How was your experience with the host?</Text>
+                  <Text style={styles.reviewPrompt}>{t('common.reviewHostPrompt')}</Text>
                   <StarRatingInput value={ratingInput} onChange={setRatingInput} />
                   <TextInput
                     style={styles.commentInput}
                     value={comment}
                     onChangeText={setComment}
-                    placeholder="Add a comment (optional)"
+                    placeholder={t('common.addComment')}
                     placeholderTextColor={colors.textMuted}
                     multiline
                   />
@@ -386,7 +390,7 @@ export function ActiveBookingScreen({ navigation, route }: Props) {
                     <Text style={styles.reviewErrorText}>{reviewSubmitError}</Text>
                   ) : null}
                   <Button
-                    label="Submit Review"
+                    label={t('common.submitReview')}
                     onPress={handleSubmitReview}
                     loading={submittingReview}
                     disabled={ratingInput === 0}
@@ -402,7 +406,7 @@ export function ActiveBookingScreen({ navigation, route }: Props) {
       <View style={styles.footer}>
         {booking.status === 'booked' ? (
           <Button
-            label="Navigate in Google Maps"
+            label={t('common.navigateMaps')}
             variant="secondary"
             onPress={handleNavigate}
             style={styles.navigateButton}
@@ -410,11 +414,11 @@ export function ActiveBookingScreen({ navigation, route }: Props) {
         ) : null}
         {booking.status === 'in_progress' ? (
           <>
-            <Button label="I'm Leaving · Confirm Vacated" onPress={handleVacated} loading={isUpdating} />
-            <Text style={styles.footerNote}>We'll notify the host and stop your meter.</Text>
+            <Button label={t('active.leaving')} onPress={handleVacated} loading={isUpdating} />
+            <Text style={styles.footerNote}>{t('active.leavingNote')}</Text>
           </>
         ) : null}
-        {booking.status === 'completed' ? <Button label="Done" onPress={handleDone} /> : null}
+        {booking.status === 'completed' ? <Button label={t('common.done')} onPress={handleDone} /> : null}
       </View>
     </SafeAreaView>
   );
@@ -498,6 +502,8 @@ const styles = StyleSheet.create({
   codeText: {
     ...typography.h1,
     fontSize: 40,
+    // h1 brings lineHeight 38, which clips a 40pt glyph.
+    lineHeight: 52,
     letterSpacing: 8,
     color: colors.primary,
   },
@@ -533,6 +539,7 @@ const styles = StyleSheet.create({
   timerText: {
     ...typography.h1,
     fontSize: 34,
+    lineHeight: 44,
     color: colors.textPrimary,
   },
   endingSoonCard: {

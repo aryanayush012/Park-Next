@@ -14,6 +14,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { Button } from '../../components/Button';
 import { TextField } from '../../components/TextField';
+import { useTranslation } from '../../i18n';
 import { colors, radius, spacing, typography } from '../../theme';
 import { RootStackParamList } from '../../navigation/types';
 import { isSupabaseConfigured, supabase } from '../../data/supabaseClient';
@@ -31,7 +32,10 @@ const MOCK_SIGN_UP_DELAY_MS = 700;
 const MOCK_GOOGLE_SIGN_IN_DELAY_MS = 700;
 
 export function SignUpScreen({ navigation }: Props) {
+  const { t } = useTranslation();
   const { signInMock } = useAuth();
+  const [firstName, setFirstName] = useState('');
+  const [lastName, setLastName] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
@@ -41,11 +45,16 @@ export function SignUpScreen({ navigation }: Props) {
   const [formError, setFormError] = useState<string | undefined>(undefined);
   const [infoMessage, setInfoMessage] = useState<string | undefined>(undefined);
 
+  const hasFirstName = firstName.trim().length > 0;
+  const hasLastName = lastName.trim().length > 0;
   const isValidEmail = EMAIL_REGEX.test(email.trim());
   const isValidPassword = password.length >= MIN_PASSWORD_LENGTH;
   const passwordsMatch = password.length > 0 && password === confirmPassword;
-  const isValid = isValidEmail && isValidPassword && passwordsMatch;
+  const isValid =
+    hasFirstName && hasLastName && isValidEmail && isValidPassword && passwordsMatch;
 
+  const showFirstNameError = touched && !hasFirstName;
+  const showLastNameError = touched && !hasLastName;
   const showEmailError = touched && email.length > 0 && !isValidEmail;
   const showPasswordError = touched && password.length > 0 && !isValidPassword;
   const showConfirmError = touched && confirmPassword.length > 0 && !passwordsMatch;
@@ -77,6 +86,8 @@ export function SignUpScreen({ navigation }: Props) {
     setInfoMessage(undefined);
     if (!isValid) return;
     const trimmedEmail = email.trim();
+    const trimmedFirstName = firstName.trim();
+    const trimmedLastName = lastName.trim();
 
     if (!isSupabaseConfigured) {
       setIsSubmitting(true);
@@ -91,6 +102,17 @@ export function SignUpScreen({ navigation }: Props) {
     const { data, error } = await supabase.auth.signUp({
       email: trimmedEmail,
       password,
+      options: {
+        // Lands in the auth user's `user_metadata`, which is where
+        // `UserProfileContext` looks to seed the `profiles` row — the same
+        // route Google's own `full_name`/`picture` arrive by, so neither
+        // sign-up path needs a screen of its own to ask for a name.
+        data: {
+          first_name: trimmedFirstName,
+          last_name: trimmedLastName,
+          full_name: `${trimmedFirstName} ${trimmedLastName}`,
+        },
+      },
     });
     setIsSubmitting(false);
     if (error) {
@@ -103,12 +125,12 @@ export function SignUpScreen({ navigation }: Props) {
       // for exactly this reason) — `signUp` succeeds but there's no session
       // until the confirmation link is clicked, so there's nothing more to
       // do on this screen right now.
-      setInfoMessage('Check your email to confirm your account, then sign in.');
+      setInfoMessage(t('signUp.confirmEmail'));
       return;
     }
     // A real session already exists — no manual navigation needed,
     // `AuthContext`'s `onAuthStateChange` listener picks it up and
-    // `RootNavigator` swaps to Complete Your Profile on its own.
+    // `RootNavigator` swaps to the main app on its own.
   };
 
   return (
@@ -125,8 +147,8 @@ export function SignUpScreen({ navigation }: Props) {
             <Text style={styles.logoLetter}>P</Text>
           </View>
 
-          <Text style={styles.title}>Create your account</Text>
-          <Text style={styles.subtitle}>Rent a spot, or list your own — it only takes a minute.</Text>
+          <Text style={styles.title}>{t('signUp.title')}</Text>
+          <Text style={styles.subtitle}>{t('signUp.subtitle')}</Text>
 
           <Pressable
             onPress={handleGoogleSignIn}
@@ -142,20 +164,45 @@ export function SignUpScreen({ navigation }: Props) {
             ) : (
               <>
                 <Ionicons name="logo-google" size={20} color={colors.textPrimary} />
-                <Text style={styles.googleButtonText}>Continue with Google</Text>
+                <Text style={styles.googleButtonText}>{t('auth.continueWithGoogle')}</Text>
               </>
             )}
           </Pressable>
 
           <View style={styles.dividerRow}>
             <View style={styles.dividerLine} />
-            <Text style={styles.dividerText}>or sign up with email</Text>
+            <Text style={styles.dividerText}>{t('signUp.divider')}</Text>
             <View style={styles.dividerLine} />
+          </View>
+
+          <View style={[styles.fieldSpacing, styles.nameRow]}>
+            <View style={styles.nameField}>
+              <TextField
+                label={t('signUp.firstName')}
+                placeholder="Priya"
+                value={firstName}
+                onChangeText={setFirstName}
+                onBlur={() => setTouched(true)}
+                autoCapitalize="words"
+                errorText={showFirstNameError ? t('signUp.firstNameError') : undefined}
+              />
+            </View>
+            <View style={styles.nameField}>
+              <TextField
+                label={t('signUp.lastName')}
+                placeholder="Sharma"
+                value={lastName}
+                onChangeText={setLastName}
+                onBlur={() => setTouched(true)}
+                autoCapitalize="words"
+                errorText={showLastNameError ? t('signUp.lastNameError') : undefined}
+              />
+            </View>
           </View>
 
           <View style={styles.fieldSpacing}>
             <TextField
-              label="Email address"
+              label={t('auth.emailLabel')}
               placeholder="priya.sharma@gmail.com"
               value={email}
               onChangeText={setEmail}
@@ -163,32 +210,32 @@ export function SignUpScreen({ navigation }: Props) {
               autoCapitalize="none"
               autoComplete="email"
               keyboardType="email-address"
-              errorText={showEmailError ? 'Enter a valid email address.' : undefined}
+              errorText={showEmailError ? t('auth.emailInvalid') : undefined}
             />
           </View>
           <View style={styles.fieldSpacing}>
             <TextField
-              label="Password"
-              placeholder="At least 6 characters"
+              label={t('auth.passwordLabel')}
+              placeholder={t('auth.passwordMinPlaceholder')}
               value={password}
               onChangeText={setPassword}
               autoCapitalize="none"
               autoComplete="password-new"
               secureTextEntry
-              errorText={showPasswordError ? 'Use at least 6 characters.' : undefined}
+              errorText={showPasswordError ? t('auth.passwordTooShort') : undefined}
             />
           </View>
           <View style={styles.fieldSpacing}>
             <TextField
-              label="Confirm password"
-              placeholder="Type it again"
+              label={t('signUp.confirmPassword')}
+              placeholder={t('auth.typeItAgain')}
               value={confirmPassword}
               onChangeText={setConfirmPassword}
               onBlur={() => setTouched(true)}
               autoCapitalize="none"
               autoComplete="password-new"
               secureTextEntry
-              errorText={showConfirmError ? "Passwords don't match." : undefined}
+              errorText={showConfirmError ? t('auth.passwordsDontMatch') : undefined}
             />
           </View>
 
@@ -198,9 +245,11 @@ export function SignUpScreen({ navigation }: Props) {
 
         <View style={styles.footer}>
           <Button
-            label="Create Account"
+            label={t('signUp.submit')}
             onPress={handleCreateAccount}
-            disabled={!email || !password || !confirmPassword || isSubmitting}
+            disabled={
+              !firstName || !lastName || !email || !password || !confirmPassword || isSubmitting
+            }
             loading={isSubmitting}
           />
           <Text style={styles.footerText}>
@@ -208,9 +257,7 @@ export function SignUpScreen({ navigation }: Props) {
           </Text>
           <Text style={styles.footerLinkRow}>
             Already have an account?{' '}
-            <Text style={styles.footerLink} onPress={() => navigation.navigate('SignIn')}>
-              Sign In
-            </Text>
+            <Text style={styles.footerLink} onPress={() => navigation.navigate('SignIn')}>{t('signIn.submit')}</Text>
           </Text>
         </View>
       </KeyboardAvoidingView>
@@ -256,6 +303,13 @@ const styles = StyleSheet.create({
   },
   fieldSpacing: {
     marginTop: spacing.sm,
+  },
+  nameRow: {
+    flexDirection: 'row',
+    gap: spacing.sm,
+  },
+  nameField: {
+    flex: 1,
   },
   googleButton: {
     flexDirection: 'row',

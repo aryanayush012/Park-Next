@@ -13,6 +13,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { Button } from '../../components/Button';
 import { TextField } from '../../components/TextField';
+import { useTranslation } from '../../i18n';
 import { colors, spacing, typography } from '../../theme';
 import { RootStackParamList } from '../../navigation/types';
 import { isSupabaseConfigured, supabase } from '../../data/supabaseClient';
@@ -22,6 +23,7 @@ type Props = NativeStackScreenProps<RootStackParamList, 'ForgotPasswordEmail'>;
 const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 export function ForgotPasswordEmailScreen({ navigation }: Props) {
+  const { t } = useTranslation();
   const [email, setEmail] = useState('');
   const [touched, setTouched] = useState(false);
   const [isSending, setIsSending] = useState(false);
@@ -71,14 +73,14 @@ export function ForgotPasswordEmailScreen({ navigation }: Props) {
           contentContainerStyle={styles.scrollContent}
           keyboardShouldPersistTaps="handled"
         >
-          <Text style={styles.title}>Reset your password</Text>
+          <Text style={styles.title}>{t('forgot.title')}</Text>
           <Text style={styles.subtitle}>
             Enter the email on your account and we'll send you a 6-digit code to reset your
             password.
           </Text>
 
           <TextField
-            label="Email address"
+            label={t('auth.emailLabel')}
             placeholder="priya.sharma@gmail.com"
             value={email}
             onChangeText={setEmail}
@@ -86,13 +88,13 @@ export function ForgotPasswordEmailScreen({ navigation }: Props) {
             autoCapitalize="none"
             autoComplete="email"
             keyboardType="email-address"
-            errorText={showError ? sendError ?? 'Enter a valid email address.' : undefined}
+            errorText={showError ? sendError ?? t('auth.emailInvalid') : undefined}
           />
         </ScrollView>
 
         <View style={styles.footer}>
           <Button
-            label="Send Reset Code"
+            label={t('forgot.send')}
             onPress={handleSendCode}
             disabled={!email || isSending}
             loading={isSending}

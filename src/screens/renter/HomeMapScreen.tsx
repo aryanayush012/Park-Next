@@ -18,7 +18,9 @@ import { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { Button } from '../../components/Button';
 import { ListingCard } from '../../components/ListingCard';
 import { MapMarker, MapView } from '../../components/MapView';
+import { Slider } from '../../components/Slider';
 import { Stepper } from '../../components/Stepper';
+import { TranslationKey, useTranslation } from '../../i18n';
 import { colors, radius, spacing, typography } from '../../theme';
 import { RenterHomeStackParamList } from '../../navigation/types';
 import { dataSource } from '../../data/dataSource';
@@ -50,37 +52,31 @@ const CARD_HEIGHT = 258;
 // visible at once, on a shorter device.
 const FILTERS_SCROLL_MAX_HEIGHT = Math.round(SCREEN_HEIGHT * 0.5);
 
-/** One of a small set of hourly-price bands — replaces the old flat "Budget
- * Friendly" on/off toggle with something that scales past this app's own
- * sample-data price range (which happens to sit under ₹50/hr today). */
-type BudgetBucket = 'under_50' | '50_100' | '100_200' | '200_300' | 'above_300';
-
-interface BudgetBucketDef {
-  key: BudgetBucket;
-  label: string;
-  min: number;
-  /** null = open-ended (no upper bound). */
-  max: number | null;
-}
-
-const BUDGET_BUCKETS: BudgetBucketDef[] = [
-  { key: 'under_50', label: 'Under ₹50/hr', min: 0, max: 50 },
-  { key: '50_100', label: '₹50 – 100/hr', min: 50, max: 100 },
-  { key: '100_200', label: '₹100 – 200/hr', min: 100, max: 200 },
-  { key: '200_300', label: '₹200 – 300/hr', min: 200, max: 300 },
-  { key: 'above_300', label: 'Above ₹300/hr', min: 300, max: null },
-];
-
+/**
+ * The budget slider is a fixed 0–500/hr rather than being derived from the
+ * listings on screen: a range that moves as you search is disorienting, and
+ * a filter that silently reshapes itself is hard to trust. The top of the
+ * track means "no ceiling", so spots above 500 are still reachable there.
+ */
+const BUDGET_MIN = 0;
+const BUDGET_MAX = 500;
+// 10 keeps the stops far enough apart to hit with a thumb: 50 of them across
+// the track, rather than 100 at 3px each.
+const BUDGET_STEP = 10;
 interface Filters {
-  /** null = any price. */
-  budgetBucket: BudgetBucket | null;
+  /**
+   * Highest acceptable per-hour price, or null for no ceiling — which is
+   * what the slider sitting at its top end means. There's deliberately no
+   * "Any" option: the slider already expresses it.
+   */
+  maxPricePerHour: number | null;
   /** A listing must have every amenity in this set — empty set = no amenity requirement. */
   amenities: AmenityKey[];
   /** null = any vehicle type. */
   vehicleType: VehicleType | null;
 }
 
-const EMPTY_FILTERS: Filters = { budgetBucket: null, amenities: [], vehicleType: null };
+const EMPTY_FILTERS: Filters = { maxPricePerHour: null, amenities: [], vehicleType: null };
 
 /** Whether the renter is looking for a spot right now, or planning ahead for a later date/time. */
 type SearchMode = 'now' | 'later';
@@ -89,14 +85,15 @@ function clamp(value: number, min: number, max: number): number {
   return Math.min(max, Math.max(min, value));
 }
 
-const VEHICLE_OPTIONS: { key: VehicleType | null; label: string }[] = [
-  { key: null, label: 'Any' },
-  { key: 'car', label: 'Car' },
-  { key: 'suv', label: 'SUV' },
-  { key: 'two_wheeler', label: '2-Wheeler' },
+const VEHICLE_OPTIONS: { key: VehicleType | null; labelKey: TranslationKey }[] = [
+  { key: null, labelKey: 'home.all' },
+  { key: 'car', labelKey: 'vehicle.car' },
+  { key: 'suv', labelKey: 'vehicle.suv' },
+  { key: 'two_wheeler', labelKey: 'vehicle.two_wheeler' },
 ];
 
 export function HomeMapScreen({ navigation }: Props) {
+  const { t } = useTranslation();
   const {
     location: currentLocation,
     source: locationSource,
@@ -225,10 +222,7 @@ export function HomeMapScreen({ navigation }: Props) {
     };
   }, [searchMode, scheduleDays, scheduleDateOffset, scheduleStartMinutes, scheduleDurationMinutes]);
 
-  const budgetBucketDef = useMemo(
-    () => BUDGET_BUCKETS.find((bucket) => bucket.key === filters.budgetBucket) ?? null,
-    [filters.budgetBucket]
-  );
+  const budgetValue = filters.maxPricePerHour ?? BUDGET_MAX;
 
   const filteredListings = useMemo(() => {
     const q = query.trim().toLowerCase();
@@ -236,9 +230,8 @@ export function HomeMapScreen({ navigation }: Props) {
       if (q && !listing.title.toLowerCase().includes(q) && !listing.address.toLowerCase().includes(q)) {
         return false;
       }
-      if (budgetBucketDef) {
-        const { min, max } = budgetBucketDef;
-        if (listing.pricePerHour < min || (max !== null && listing.pricePerHour >= max)) return false;
+      if (filters.maxPricePerHour !== null && listing.pricePerHour > filters.maxPricePerHour) {
+        return false;
       }
       if (filters.amenities.some((key) => !listing.amenities.includes(key))) return false;
       if (filters.vehicleType && !listing.vehicleTypes.includes(filters.vehicleType)) return false;
@@ -249,13 +242,15 @@ export function HomeMapScreen({ navigation }: Props) {
     return [...result].sort((a, b) =>
       sortMode === 'distance' ? a.distanceKm - b.distanceKm : b.rating - a.rating
     );
-  }, [listings, query, filters, budgetBucketDef, sortMode, availabilityWindow]);
+  }, [listings, query, filters, sortMode, availabilityWindow]);
 
   // Drives the little count badge on the "Filters" button — sort isn't
   // counted here since it's an ordering preference, not something that
   // narrows the list down.
   const activeFilterCount =
-    (filters.budgetBucket ? 1 : 0) + filters.amenities.length + (filters.vehicleType ? 1 : 0);
+    (filters.maxPricePerHour !== null ? 1 : 0) +
+    filters.amenities.length +
+    (filters.vehicleType ? 1 : 0);
 
   const markers: MapMarker[] = useMemo(
     () =>
@@ -300,8 +295,14 @@ export function HomeMapScreen({ navigation }: Props) {
     navigation.navigate('ListingDetail', { listingId, defaultBookingType, schedule });
   };
 
-  const setBudgetBucket = (key: BudgetBucket | null) => {
-    setFilters((prev) => ({ ...prev, budgetBucket: prev.budgetBucket === key ? null : key }));
+  const setMaxPrice = (next: number) => {
+    setFilters((prev) => ({
+      ...prev,
+      // At the top of the track there is no ceiling at all, so store null
+      // rather than 500 — that keeps the filter count honest and still
+      // shows spots priced above the slider maximum.
+      maxPricePerHour: next >= BUDGET_MAX ? null : next,
+    }));
   };
 
   const toggleAmenity = (key: AmenityKey) => {
@@ -337,7 +338,7 @@ export function HomeMapScreen({ navigation }: Props) {
           <TextInput
             value={query}
             onChangeText={setQuery}
-            placeholder="Where are you headed?"
+            placeholder={t('home.searchPlaceholder')}
             placeholderTextColor={colors.textMuted}
             style={styles.searchInput}
           />
@@ -354,7 +355,7 @@ export function HomeMapScreen({ navigation }: Props) {
               color={searchMode === 'now' ? colors.textOnPrimary : colors.textSecondary}
             />
             <Text style={[styles.modeChipText, searchMode === 'now' && styles.modeChipTextActive]}>
-              Now
+              {t('home.now')}
             </Text>
           </Pressable>
           <Pressable
@@ -374,8 +375,21 @@ export function HomeMapScreen({ navigation }: Props) {
                 ? `${scheduleDays[scheduleDateOffset].date.toLocaleDateString('en-US', {
                     weekday: 'short',
                   })} · ${minutesToTimeLabel(scheduleStartMinutes)}`
-                : 'Schedule for later'}
+                : t('home.scheduleLater')}
             </Text>
+          </Pressable>
+
+          <Pressable
+            onPress={() => setFiltersModalVisible(true)}
+            style={[styles.modeChip, styles.filtersChip]}
+          >
+            <Ionicons name="options-outline" size={20} color={colors.textSecondary} />
+            {/* <Text style={styles.modeChipText}>{t('home.filters')}</Text> */}
+            {activeFilterCount > 0 && (
+              <View style={styles.filtersBadge}>
+                <Text style={styles.filtersBadgeText}>{activeFilterCount}</Text>
+              </View>
+            )}
           </Pressable>
         </View>
 
@@ -387,7 +401,9 @@ export function HomeMapScreen({ navigation }: Props) {
           >
             <Ionicons name="location-outline" size={23} color={colors.textSecondary} />
             <Text style={styles.locationNoticeText}>
-              {locationNeedsSettings ? `Tap to Fetch ${locationError}` : 'Tap to retry.'}
+              {locationNeedsSettings
+                ? t('home.tapToFetch', { error: locationError ?? '' })
+                : t('home.tapRetry')}
             </Text>
           </Pressable>
         )}
@@ -401,18 +417,12 @@ export function HomeMapScreen({ navigation }: Props) {
         <View style={styles.sheetHeader}>
           <View style={styles.sheetTitleDragArea} {...panResponder.panHandlers}>
             <Text style={styles.sheetTitle}>
-              {filteredListings.length} spots {searchMode === 'now' ? 'available now' : 'available then'}
+              {t(
+                searchMode === 'now' ? 'home.spotsAvailableNow' : 'home.spotsAvailableThen',
+                { count: filteredListings.length }
+              )}
             </Text>
           </View>
-          <Pressable onPress={() => setFiltersModalVisible(true)} style={styles.filtersButton}>
-            <Ionicons name="options-outline" size={15} color={colors.textPrimary} />
-            <Text style={styles.filtersButtonText}>Filters</Text>
-            {activeFilterCount > 0 && (
-              <View style={styles.filtersBadge}>
-                <Text style={styles.filtersBadgeText}>{activeFilterCount}</Text>
-              </View>
-            )}
-          </Pressable>
         </View>
 
         <FlatList
@@ -445,7 +455,7 @@ export function HomeMapScreen({ navigation }: Props) {
             </View>
           )}
           ListEmptyComponent={
-            <Text style={styles.emptyText}>No spots match your filters yet.</Text>
+            <Text style={styles.emptyText}>{t('home.noSpots')}</Text>
           }
         />
       </Animated.View>
@@ -458,9 +468,9 @@ export function HomeMapScreen({ navigation }: Props) {
       >
         <Pressable style={styles.modalBackdrop} onPress={() => setScheduleModalVisible(false)} />
         <SafeAreaView style={styles.modalSheet} edges={['bottom']}>
-          <Text style={styles.modalTitle}>When do you need parking?</Text>
+          <Text style={styles.modalTitle}>{t('home.whenNeeded')}</Text>
 
-          <Text style={styles.modalSectionLabel}>Date</Text>
+          <Text style={styles.modalSectionLabel}>{t('home.date')}</Text>
           <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.modalDateRow}>
             {scheduleDays.map(({ offset, date }) => {
               const isActive = offset === scheduleDateOffset;
@@ -481,9 +491,9 @@ export function HomeMapScreen({ navigation }: Props) {
             })}
           </ScrollView>
 
-          <Text style={styles.modalSectionLabel}>Start Time</Text>
+          <Text style={styles.modalSectionLabel}>{t('home.startTime')}</Text>
           <Stepper
-            label="Starts at"
+            label={t('common.startsAt')}
             valueLabel={minutesToTimeLabel(scheduleStartMinutes)}
             onIncrement={() =>
               setScheduleStartMinutes((m) =>
@@ -497,12 +507,19 @@ export function HomeMapScreen({ navigation }: Props) {
             }
             canDecrement={scheduleStartMinutes > MIN_MINUTES_OF_DAY}
             canIncrement={scheduleStartMinutes < MAX_MINUTES_OF_DAY}
+            edit={{
+              kind: 'time',
+              minutes: scheduleStartMinutes,
+              min: MIN_MINUTES_OF_DAY,
+              max: MAX_MINUTES_OF_DAY,
+              onChange: setScheduleStartMinutes,
+            }}
           />
 
           <View style={{ height: spacing.sm }} />
 
           <Stepper
-            label="Duration"
+            label={t('common.duration')}
             valueLabel={formatDurationLabel(scheduleDurationMinutes)}
             onIncrement={() =>
               setScheduleDurationMinutes((m) =>
@@ -516,11 +533,18 @@ export function HomeMapScreen({ navigation }: Props) {
             }
             canDecrement={scheduleDurationMinutes > MIN_DURATION_MINUTES}
             canIncrement={scheduleDurationMinutes < MAX_DURATION_MINUTES}
+            edit={{
+              kind: 'duration',
+              minutes: scheduleDurationMinutes,
+              min: MIN_DURATION_MINUTES,
+              max: MAX_DURATION_MINUTES,
+              onChange: setScheduleDurationMinutes,
+            }}
           />
 
           <View style={{ height: spacing.md }} />
 
-          <Button label="Show Available Spots" onPress={() => setScheduleModalVisible(false)} />
+          <Button label={t('home.showSpots')} onPress={() => setScheduleModalVisible(false)} />
 
           <Pressable
             style={styles.modalNowLink}
@@ -529,7 +553,7 @@ export function HomeMapScreen({ navigation }: Props) {
               setScheduleModalVisible(false);
             }}
           >
-            <Text style={styles.modalNowLinkText}>Actually, I need it now</Text>
+            <Text style={styles.modalNowLinkText}>{t('home.needItNow')}</Text>
           </Pressable>
         </SafeAreaView>
       </Modal>
@@ -543,52 +567,50 @@ export function HomeMapScreen({ navigation }: Props) {
         <Pressable style={styles.modalBackdrop} onPress={() => setFiltersModalVisible(false)} />
         <SafeAreaView style={styles.modalSheet} edges={['bottom']}>
           <View style={styles.filtersModalHeader}>
-            <Text style={styles.modalTitle}>Filters</Text>
+            <Text style={styles.modalTitle}>{t('home.filters')}</Text>
             {activeFilterCount > 0 && (
               <Pressable onPress={clearAllFilters} hitSlop={8}>
-                <Text style={styles.clearAllText}>Clear all</Text>
+                <Text style={styles.clearAllText}>{t('home.clearAll')}</Text>
               </Pressable>
             )}
           </View>
 
           <ScrollView showsVerticalScrollIndicator={false} style={styles.filtersScroll}>
-            <Text style={styles.modalSectionLabel}>Sort By</Text>
+            <Text style={styles.modalSectionLabel}>{t('home.sortBy')}</Text>
             <View style={styles.optionRow}>
               <SelectableChip
-                label="Nearest"
+                label={t('home.nearest')}
                 active={sortMode === 'distance'}
                 onPress={() => setSortMode('distance')}
               />
               <SelectableChip
-                label="Top Rated"
+                label={t('home.topRated')}
                 active={sortMode === 'rating'}
                 onPress={() => setSortMode('rating')}
               />
             </View>
 
-            <Text style={styles.modalSectionLabel}>Budget</Text>
-            <View style={styles.optionRow}>
-              <SelectableChip
-                label="Any"
-                active={filters.budgetBucket === null}
-                onPress={() => setBudgetBucket(null)}
-              />
-              {BUDGET_BUCKETS.map((bucket) => (
-                <SelectableChip
-                  key={bucket.key}
-                  label={bucket.label}
-                  active={filters.budgetBucket === bucket.key}
-                  onPress={() => setBudgetBucket(bucket.key)}
-                />
-              ))}
+            <View style={styles.budgetHeader}>
+              <Text style={styles.modalSectionLabel}>{t('home.budget')}</Text>
+              <Text style={styles.budgetValue}>
+                {t('home.upTo', { currency: '₹', price: budgetValue })}
+              </Text>
             </View>
+            <Slider
+              min={BUDGET_MIN}
+              max={BUDGET_MAX}
+              step={BUDGET_STEP}
+              value={budgetValue}
+              onChange={setMaxPrice}
+              accessibilityLabel={t('home.budget')}
+            />
 
-            <Text style={styles.modalSectionLabel}>Amenities</Text>
+            <Text style={styles.modalSectionLabel}>{t('detail.amenities')}</Text>
             <View style={styles.optionRow}>
               {AMENITY_SELECTOR_KEYS.map((key) => (
                 <SelectableChip
                   key={key}
-                  label={AMENITIES[key].label}
+                  label={t(`amenity.${key}`)}
                   icon={AMENITIES[key].icon}
                   active={filters.amenities.includes(key)}
                   onPress={() => toggleAmenity(key)}
@@ -596,12 +618,12 @@ export function HomeMapScreen({ navigation }: Props) {
               ))}
             </View>
 
-            <Text style={styles.modalSectionLabel}>Vehicle Type</Text>
+            <Text style={styles.modalSectionLabel}>{t('home.vehicleType')}</Text>
             <View style={styles.optionRow}>
               {VEHICLE_OPTIONS.map((option) => (
                 <SelectableChip
-                  key={option.label}
-                  label={option.label}
+                  key={option.labelKey}
+                  label={t(option.labelKey)}
                   active={filters.vehicleType === option.key}
                   onPress={() => setVehicleType(option.key)}
                 />
@@ -612,7 +634,7 @@ export function HomeMapScreen({ navigation }: Props) {
           </ScrollView>
 
           <Button
-            label={`Show ${filteredListings.length} Spot${filteredListings.length === 1 ? '' : 's'}`}
+            label={t('home.showSpotsCount', { count: filteredListings.length })}
             onPress={() => setFiltersModalVisible(false)}
             style={styles.filtersApplyButton}
           />
@@ -686,6 +708,11 @@ const styles = StyleSheet.create({
     gap: spacing.xs,
     marginTop: spacing.sm,
   },
+  filtersChip: {
+    // Pushed to the end of the row, so the date pill can grow without
+    // shunting it around.
+    marginLeft: 'auto',
+  },
   modeChip: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -699,7 +726,6 @@ const styles = StyleSheet.create({
   },
   modeChipActive: {
     backgroundColor: colors.primary,
-    borderColor: colors.primary,
   },
   modeChipText: {
     ...typography.caption,
@@ -791,23 +817,10 @@ const styles = StyleSheet.create({
     ...typography.h3,
     color: colors.textPrimary,
   },
-  filtersButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 4,
-    backgroundColor: colors.surfaceElevated,
-    borderWidth: 1,
-    borderColor: colors.surfaceBorder,
-    borderRadius: radius.full,
-    paddingVertical: 6,
-    paddingHorizontal: spacing.sm,
-  },
-  filtersButtonText: {
-    ...typography.caption,
-    color: colors.textPrimary,
-    fontFamily: typography.bodyMedium.fontFamily,
-  },
   filtersBadge: {
+    position: 'absolute',
+    right: -6,
+    top: -6,
     minWidth: 16,
     height: 16,
     borderRadius: 8,
@@ -857,6 +870,16 @@ const styles = StyleSheet.create({
     ...typography.h2,
     color: colors.textPrimary,
     marginBottom: spacing.sm,
+  },
+  budgetHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: spacing.sm,
+  },
+  budgetValue: {
+    ...typography.bodyMedium,
+    color: colors.primary,
   },
   modalSectionLabel: {
     ...typography.bodyMedium,

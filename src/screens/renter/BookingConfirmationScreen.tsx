@@ -1,10 +1,12 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { ActivityIndicator, Linking, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { ScreenHeader } from '../../components/ScreenHeader';
 import { Ionicons } from '@expo/vector-icons';
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { Button } from '../../components/Button';
 import { MapView, RouteResolvedInfo } from '../../components/MapView';
+import { TranslationKey, useTranslation } from '../../i18n';
 import { colors, radius, spacing, typography } from '../../theme';
 import { SharedBookingParamList } from '../../navigation/types';
 import { dataSource } from '../../data/dataSource';
@@ -30,6 +32,7 @@ type Props = NativeStackScreenProps<SharedBookingParamList, 'BookingConfirmation
 const PENDING_POLL_MS = 5000;
 
 export function BookingConfirmationScreen({ navigation, route }: Props) {
+  const { t } = useTranslation();
   const { bookingId, justBooked = false } = route.params;
   const { location: currentLocation } = useCurrentLocation();
   const [booking, setBooking] = useState<Booking | null>(null);
@@ -117,17 +120,22 @@ export function BookingConfirmationScreen({ navigation, route }: Props) {
   if (!booking || !listing) {
     return (
       <SafeAreaView style={styles.loadingContainer}>
-        <Text style={styles.loadingText}>Loading booking…</Text>
+        <Text style={styles.loadingText}>{t('common.loadingBooking')}</Text>
       </SafeAreaView>
     );
   }
 
+  // A back arrow is only offered when there is somewhere to go: this screen
+  // can be the only route on its stack, and `goBack()` would then do nothing.
+  const canGoBack = navigation.canGoBack();
+
   if (booking.status === 'pending') {
     return (
       <SafeAreaView style={styles.container} edges={['top', 'bottom']}>
+        <ScreenHeader onBack={canGoBack ? () => navigation.goBack() : undefined} />
         <View style={styles.pendingContent}>
           <ActivityIndicator color={colors.secondary} size="large" />
-          <Text style={styles.pendingTitle}>Waiting for host approval</Text>
+          <Text style={styles.pendingTitle}>{t('confirm.pendingTitle')}</Text>
           <Text style={styles.pendingSubtitle}>
             Your request has been sent to the host. They've been notified and have{' '}
             {formatResponseDeadline(booking.responseDeadline)} to respond — we'll take you
@@ -138,19 +146,19 @@ export function BookingConfirmationScreen({ navigation, route }: Props) {
             <Text style={styles.spotTitle}>{listing.title}</Text>
             {booking.recurring ? (
               <SummaryRow
-                label="Time"
+                label={t('common.time')}
                 value={`${formatHHmm(booking.recurring.startTime)} – ${formatHHmm(
                   booking.recurring.endTime
                 )}`}
               />
             ) : (
               <SummaryRow
-                label="Date & Time"
+                label={t('common.dateTime')}
                 value={formatDateTimeRange(booking.startTime, booking.endTime)}
               />
             )}
             <SummaryRow
-              label={booking.pricingModel === 'metered' ? 'Estimated Total' : 'Total Price'}
+              label={booking.pricingModel === 'metered' ? t('common.estimatedTotal') : t('common.totalPrice')}
               value={`${listing.currency}${booking.totalPrice}`}
               highlight
             />
@@ -159,7 +167,7 @@ export function BookingConfirmationScreen({ navigation, route }: Props) {
 
         <View style={styles.bottomPanel}>
           <Button
-            label="Cancel Request"
+            label={t('confirm.cancelRequest')}
             variant="secondary"
             onPress={handleCancelRequest}
             loading={isCancelling}
@@ -174,15 +182,16 @@ export function BookingConfirmationScreen({ navigation, route }: Props) {
     const isDeclined = booking.status === 'declined';
     return (
       <SafeAreaView style={styles.container} edges={['top', 'bottom']}>
+        <ScreenHeader onBack={canGoBack ? () => navigation.goBack() : undefined} />
         <View style={styles.pendingContent}>
           <View style={styles.declinedIconWrap}>
             <Ionicons name="close" size={26} color={colors.error} />
           </View>
           <Text style={styles.pendingTitle}>
             {isCancelledByMe
-              ? 'Request cancelled'
+              ? t('confirm.requestCancelled')
               : isDeclined
-              ? 'Request declined'
+              ? t('confirm.requestDeclined')
               : "Host didn't respond in time"}
           </Text>
           <Text style={styles.pendingSubtitle}>
@@ -195,7 +204,7 @@ export function BookingConfirmationScreen({ navigation, route }: Props) {
         </View>
 
         <View style={styles.bottomPanel}>
-          <Button label="Browse Other Spots" onPress={handleBrowseOtherSpots} />
+          <Button label={t('confirm.browseOther')} onPress={handleBrowseOtherSpots} />
         </View>
       </SafeAreaView>
     );
@@ -227,16 +236,17 @@ export function BookingConfirmationScreen({ navigation, route }: Props) {
 
   return (
     <SafeAreaView style={styles.container} edges={['top', 'bottom']}>
+      <ScreenHeader onBack={canGoBack ? () => navigation.goBack() : undefined} />
       <View style={styles.content}>
         {justBooked ? (
           <View style={styles.confirmHeader}>
             <View style={styles.checkCircle}>
               <Ionicons name="checkmark" size={28} color={colors.textOnSecondary} />
             </View>
-            <Text style={styles.confirmTitle}>Booking Confirmed!</Text>
+            <Text style={styles.confirmTitle}>{t('confirm.confirmed')}</Text>
           </View>
         ) : (
-          <Text style={styles.plainTitle}>Your Booking</Text>
+          <Text style={styles.plainTitle}>{t('confirm.yourBooking')}</Text>
         )}
 
         <View style={styles.summaryCard}>
@@ -244,11 +254,11 @@ export function BookingConfirmationScreen({ navigation, route }: Props) {
           {booking.recurring ? (
             <>
               <SummaryRow
-                label="Repeats"
-                value={booking.recurring.days.map((d) => WEEKDAY_LABELS[d]).join(', ')}
+                label={t('confirm.repeats')}
+                value={booking.recurring.days.map((d) => t(`weekday.${d}` as TranslationKey)).join(', ')}
               />
               <SummaryRow
-                label="Time"
+                label={t('common.time')}
                 value={`${formatHHmm(booking.recurring.startTime)} – ${formatHHmm(
                   booking.recurring.endTime
                 )}`}
@@ -256,12 +266,12 @@ export function BookingConfirmationScreen({ navigation, route }: Props) {
             </>
           ) : (
             <SummaryRow
-              label="Date & Time"
+              label={t('common.dateTime')}
               value={formatDateTimeRange(booking.startTime, booking.endTime)}
             />
           )}
           <SummaryRow
-            label={booking.pricingModel === 'metered' ? 'Estimated Total' : 'Total Price'}
+            label={booking.pricingModel === 'metered' ? t('common.estimatedTotal') : t('common.totalPrice')}
             value={`${listing.currency}${booking.totalPrice}`}
             highlight
           />
@@ -276,7 +286,7 @@ export function BookingConfirmationScreen({ navigation, route }: Props) {
               <Text style={styles.hostName}>{host.name}</Text>
               <Text style={styles.hostPhone}>{host.phone}</Text>
             </View>
-            <Button label="Call" variant="secondary" onPress={handleContactHost} style={styles.callButton} />
+            <Button label={t('common.call')} variant="secondary" onPress={handleContactHost} style={styles.callButton} />
           </View>
         ) : null}
       </View>
@@ -302,17 +312,17 @@ export function BookingConfirmationScreen({ navigation, route }: Props) {
 
         <Text style={styles.routeSourceText}>
           {routeInfo?.source === 'osrm'
-            ? 'Live route from OSRM'
-            : 'Estimated route (straight-line fallback)'}
+            ? t('confirm.liveRoute')
+            : t('confirm.estimatedRoute')}
         </Text>
 
         <Button
-          label="Navigate in Google Maps"
+          label={t('common.navigateMaps')}
           variant="secondary"
           onPress={handleNavigate}
           style={styles.navigateButton}
         />
-        <Button label="I've Reached the Spot" onPress={handlePrimaryAction} />
+        <Button label={t('confirm.reached')} onPress={handlePrimaryAction} />
       </View>
     </SafeAreaView>
   );

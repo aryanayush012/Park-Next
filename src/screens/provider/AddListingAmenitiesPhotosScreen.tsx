@@ -5,20 +5,24 @@ import { Ionicons } from '@expo/vector-icons';
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { Button } from '../../components/Button';
 import { SelectableChip } from '../../components/SelectableChip';
+import { useTranslation } from '../../i18n';
 import { colors, radius, spacing, typography } from '../../theme';
 import { ProviderListingsStackParamList } from '../../navigation/types';
 import { AMENITIES, AMENITY_SELECTOR_KEYS } from '../../data/mockData';
 import { AmenityKey } from '../../types';
-import { choosePhotoSource, pickPhotosFromLibrary, takePhotoWithCamera } from '../../utils/imagePicker';
+import { PhotoSourceSheet } from '../../components/PhotoSourceSheet';
+import { pickPhotosFromLibrary, takePhotoWithCamera } from '../../utils/imagePicker';
 
 type Props = NativeStackScreenProps<ProviderListingsStackParamList, 'AddListingAmenitiesPhotos'>;
 
 const MAX_PHOTOS = 6;
 
 export function AddListingAmenitiesPhotosScreen({ navigation, route }: Props) {
+  const { t } = useTranslation();
   const { draft, editingListingId } = route.params;
   const [amenities, setAmenities] = useState<AmenityKey[]>(draft.amenities);
   const [photos, setPhotos] = useState<string[]>(draft.photos);
+  const [sourceSheetVisible, setSourceSheetVisible] = useState(false);
 
   const toggleAmenity = (key: AmenityKey) => {
     setAmenities((prev) => (prev.includes(key) ? prev.filter((k) => k !== key) : [...prev, key]));
@@ -28,25 +32,18 @@ export function AddListingAmenitiesPhotosScreen({ navigation, route }: Props) {
     setPhotos((prev) => prev.filter((p) => p !== uri));
   };
 
+  const addPhotos = (uris: string[]) => {
+    setPhotos((prev) => [...prev, ...uris].slice(0, MAX_PHOTOS));
+  };
+
   const handleTakePhoto = async () => {
-    if (photos.length >= MAX_PHOTOS) return;
     const uri = await takePhotoWithCamera();
-    if (uri) setPhotos((prev) => [...prev, uri].slice(0, MAX_PHOTOS));
+    if (uri) addPhotos([uri]);
   };
 
   const handleChooseFromLibrary = async () => {
-    const remaining = MAX_PHOTOS - photos.length;
-    if (remaining <= 0) return;
-    const uris = await pickPhotosFromLibrary(remaining);
-    if (uris) setPhotos((prev) => [...prev, ...uris].slice(0, MAX_PHOTOS));
-  };
-
-  const handleAddPhoto = () => {
-    choosePhotoSource({
-      title: 'Add a listing photo',
-      onTakePhoto: handleTakePhoto,
-      onChooseLibrary: handleChooseFromLibrary,
-    });
+    const uris = await pickPhotosFromLibrary(MAX_PHOTOS - photos.length);
+    if (uris) addPhotos(uris);
   };
 
   const handleContinue = () => {
@@ -63,19 +60,19 @@ export function AddListingAmenitiesPhotosScreen({ navigation, route }: Props) {
           <Ionicons name="arrow-back" size={20} color={colors.textPrimary} />
         </Pressable>
         <View>
-          <Text style={styles.headerTitle}>{editingListingId ? 'Edit Listing' : 'Add Listing'}</Text>
-          <Text style={styles.stepLabel}>Step 2 of 3 · Amenities &amp; Photos</Text>
+          <Text style={styles.headerTitle}>{editingListingId ? t('common.editListing') : t('common.addListing')}</Text>
+          <Text style={styles.stepLabel}>{t('addListing.step2')}</Text>
         </View>
       </View>
 
       <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
-        <Text style={styles.sectionTitle}>Amenities</Text>
-        <Text style={styles.sectionSubtitle}>Select all that apply</Text>
+        <Text style={styles.sectionTitle}>{t('addListing.amenities')}</Text>
+        <Text style={styles.sectionSubtitle}>{t('addListing.selectAllThatApply')}</Text>
         <View style={styles.chipRow}>
           {AMENITY_SELECTOR_KEYS.map((key) => (
             <SelectableChip
               key={key}
-              label={AMENITIES[key].label}
+              label={t(`amenity.${key}`)}
               icon={AMENITIES[key].icon as any}
               selected={amenities.includes(key)}
               onPress={() => toggleAmenity(key)}
@@ -83,7 +80,7 @@ export function AddListingAmenitiesPhotosScreen({ navigation, route }: Props) {
           ))}
         </View>
 
-        <Text style={styles.sectionTitle}>Photos</Text>
+        <Text style={styles.sectionTitle}>{t('addListing.photos')}</Text>
 
         <View style={styles.photoGrid}>
           {photos.map((uri) => (
@@ -95,7 +92,10 @@ export function AddListingAmenitiesPhotosScreen({ navigation, route }: Props) {
             </View>
           ))}
           {photos.length < MAX_PHOTOS ? (
-            <Pressable onPress={handleAddPhoto} style={[styles.photoTile, styles.addTile]}>
+            <Pressable
+              onPress={() => setSourceSheetVisible(true)}
+              style={[styles.photoTile, styles.addTile]}
+            >
               <Ionicons name="add" size={28} color={colors.textSecondary} />
             </Pressable>
           ) : null}
@@ -104,9 +104,17 @@ export function AddListingAmenitiesPhotosScreen({ navigation, route }: Props) {
         <View style={{ height: spacing.xxl }} />
       </ScrollView>
 
+      <PhotoSourceSheet
+        visible={sourceSheetVisible}
+        title={t('addListing.addPhotoTitle')}
+        onClose={() => setSourceSheetVisible(false)}
+        onCamera={handleTakePhoto}
+        onLibrary={handleChooseFromLibrary}
+      />
+
       <View style={styles.footer}>
         <Button
-          label="Continue to Pricing"
+          label={t('addListing.continueToPricing')}
           onPress={handleContinue}
           disabled={photos.length === 0}
         />

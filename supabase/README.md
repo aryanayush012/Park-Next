@@ -48,9 +48,53 @@ filenames are already in the CLI's expected format.)
    emails/month free, no card) so real OTP emails go out reliably. You can
    skip this while just testing with your own email address.
 
-## 4. Copy your API keys into the app
+## 4. Phone numbers (no verification in V1)
 
-1. In the sidebar, go to **Project Settings → API**.
+A mobile number is **required** before someone can book a spot or publish a
+listing — `PhoneRequiredDialog` blocks both actions until one is saved.
+It is **not verified**. Nothing to configure here; it works out of the box.
+
+### Why verification is deferred
+
+SMS OTP was built twice and both routes hit a wall that is commercial, not
+technical:
+
+- **Firebase Auth** — the cleanest option, and Google handles Indian SMS so
+  no DLT registration is needed. But phone auth requires the **Blaze** plan;
+  on Spark, Firebase returns `auth/billing-not-enabled` and sends nothing.
+  Test phone numbers do work on Spark, which is how the implementation was
+  proven end to end before it was removed.
+- **Supabase + SMS provider** — no plan gate, but transactional SMS to
+  Indian numbers needs DLT registration (entity, header and template with a
+  telecom operator), which is days of paperwork.
+- **WhatsApp Cloud API** — cheapest per message, but Meta requires business
+  verification, which needs documents like a GST certificate.
+
+The number is only revealed to the other party once a booking is confirmed,
+so an unverified one costs little at this stage. Verification earns its keep
+against no-shows and fake listings — worth adding when those are real
+problems, not before.
+
+### Turning it back on
+
+1. Upgrade the Firebase project to Blaze and set a budget alert. Note GCP
+   budget alerts **notify but do not cap** spending.
+2. `npx expo install @react-native-firebase/app@23.8.8 @react-native-firebase/auth@23.8.8`
+   — pin exactly. `expo install` does not know this package and will
+   otherwise take `latest`, which fails to bundle on RN 0.86.
+3. Add both plugins to `app.json`, `app` before `auth`.
+4. Register the EAS keystore SHA-1 **and** SHA-256 in Firebase, and enable
+   the **Play Integrity API** in Google Cloud. Without these you get
+   "Unable to get SMS provider".
+5. Restore the two-step `PhoneRequiredDialog`, a `phoneVerification` module
+   and a `verify-phone` Edge Function that validates the Firebase ID token
+   server-side and reads the number **out of the token**, never out of the
+   request body.
+6. Revoke `update (phone)` from `authenticated` again (0019 granted it back),
+   so an unverified number cannot be written past the OTP.
+
+## 5. Copy your API keys into the app
+. In the sidebar, go to **Project Settings → API**.
 2. You need two values from that page:
    - **Project URL** (looks like `https://xxxxxxxxxxxx.supabase.co`)
    - **anon / public** key (a long string starting with `eyJ...`) — **not**

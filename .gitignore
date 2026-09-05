@@ -31,9 +31,10 @@ yarn-error.*
 *.pem
 
 # local env files
+# Real values only. .env.example is the blank template supabase/README.md
+# tells people to copy, so it is committed on purpose.
 .env
 .env*.local
-.env.example
 
 # typescript
 *.tsbuildinfo
@@ -41,3 +42,15 @@ yarn-error.*
 # generated native folders
 /ios
 /android
+
+# Firebase service account key (FCM V1 push credential).
+# NOT the same file as google-services.json, which is safe to commit and must
+# stay committed for EAS builds. This one grants send-push-as-your-app rights
+# and belongs only on EAS.
+*-firebase-adminsdk-*.json
+google-service-account*.json
+
+# NOT ignored on purpose: google-services.json is a client config file that
+# ships inside every APK anyway, and EAS Build cannot see files git ignores.
+# Ignoring it silently breaks push notifications and phone auth in builds.
+!google-services.json

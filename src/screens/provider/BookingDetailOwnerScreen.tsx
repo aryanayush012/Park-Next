@@ -7,7 +7,8 @@ import { Button } from '../../components/Button';
 import { StarRating } from '../../components/StarRating';
 import { StarRatingInput } from '../../components/StarRatingInput';
 import { StatusBadge } from '../../components/StatusBadge';
-import { colors, radius, spacing, typography } from '../../theme';
+import { useTranslation } from '../../i18n';
+import { colors, fontFamily, radius, spacing, typography } from '../../theme';
 import { ProviderBookingsStackParamList } from '../../navigation/types';
 import { dataSource } from '../../data/dataSource';
 import { VEHICLE_TYPE_LABELS } from '../../data/mockData';
@@ -30,6 +31,7 @@ const CONTACT_REVEALED_STATUSES: BookingStatus[] = ['booked', 'in_progress', 'co
 type Props = NativeStackScreenProps<ProviderBookingsStackParamList, 'BookingDetailOwner'>;
 
 export function BookingDetailOwnerScreen({ navigation, route }: Props) {
+  const { t } = useTranslation();
   const { bookingId } = route.params;
   const { userId } = useAuth();
   const [booking, setBooking] = useState<Booking | null>(null);
@@ -106,7 +108,7 @@ export function BookingDetailOwnerScreen({ navigation, route }: Props) {
       });
       setMyReview(review);
     } catch (err) {
-      setSubmitError(err instanceof Error ? err.message : 'Something went wrong. Try again.');
+      setSubmitError(err instanceof Error ? err.message : t('common.tryAgain'));
     } finally {
       setSubmitting(false);
     }
@@ -121,7 +123,7 @@ export function BookingDetailOwnerScreen({ navigation, route }: Props) {
   if (!booking || !listing) {
     return (
       <SafeAreaView style={styles.loadingContainer}>
-        <Text style={styles.loadingText}>Loading booking…</Text>
+        <Text style={styles.loadingText}>{t('ownerDetail.loading')}</Text>
       </SafeAreaView>
     );
   }
@@ -140,8 +142,8 @@ export function BookingDetailOwnerScreen({ navigation, route }: Props) {
       setBooking(updated);
     } catch (err) {
       Alert.alert(
-        'Could not respond',
-        err instanceof Error ? err.message : 'This request may have already expired or been withdrawn.'
+        t('requests.couldNotRespond'),
+        err instanceof Error ? err.message : t('requests.expiredOrWithdrawnShort')
       );
     } finally {
       setIsResponding(false);
@@ -155,7 +157,7 @@ export function BookingDetailOwnerScreen({ navigation, route }: Props) {
       const updated = await dataSource.verifyArrivalCode(booking.id, codeInput);
       setBooking(updated);
     } catch (err) {
-      setCodeError(err instanceof Error ? err.message : 'Something went wrong. Try again.');
+      setCodeError(err instanceof Error ? err.message : t('common.tryAgain'));
     } finally {
       setVerifying(false);
     }
@@ -167,7 +169,7 @@ export function BookingDetailOwnerScreen({ navigation, route }: Props) {
         <Pressable onPress={() => navigation.goBack()} hitSlop={12} style={styles.backButton}>
           <Ionicons name="arrow-back" size={20} color={colors.textPrimary} />
         </Pressable>
-        <Text style={styles.headerTitle}>Booking Detail</Text>
+        <Text style={styles.headerTitle}>{t('ownerDetail.title')}</Text>
       </View>
 
       <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
@@ -180,7 +182,7 @@ export function BookingDetailOwnerScreen({ navigation, route }: Props) {
             <Text style={styles.avatarLetter}>{(renter?.name ?? '?')[0]}</Text>
           </View>
           <View style={styles.renterTextBlock}>
-            <Text style={styles.renterName}>{renter?.name ?? 'Renter'}</Text>
+            <Text style={styles.renterName}>{renter?.name ?? t('ownerDetail.renter')}</Text>
             <View style={styles.renterRatingRow}>
               <Ionicons name="star" size={13} color={colors.primary} />
               <Text style={styles.renterRatingText}>
@@ -198,10 +200,10 @@ export function BookingDetailOwnerScreen({ navigation, route }: Props) {
         </View>
 
         <View style={styles.card}>
-          <DetailRow label="Listing" value={listing.title} />
-          <DetailRow label="Location" value={listing.address.split(',')[0]} />
+          <DetailRow label={t('ownerDetail.listing')} value={listing.title} />
+          <DetailRow label={t('ownerDetail.location')} value={listing.address.split(',')[0]} />
           <DetailRow
-            label="Date"
+            label={t('ownerDetail.date')}
             value={
               booking.recurring
                 ? `${formatRelativeDate(booking.startTime)} (recurring)`
@@ -209,23 +211,23 @@ export function BookingDetailOwnerScreen({ navigation, route }: Props) {
             }
           />
           <DetailRow
-            label="Time"
+            label={t('ownerDetail.time')}
             value={`${formatTimeFromISO(booking.startTime)} – ${formatTimeFromISO(booking.endTime)}`}
           />
           <DetailRow
-            label="Vehicle"
+            label={t('ownerDetail.vehicle')}
             value={
               booking.renterVehiclePlate
                 ? `${booking.renterVehiclePlate}${
-                    booking.renterVehicleType ? ` (${VEHICLE_TYPE_LABELS[booking.renterVehicleType]})` : ''
+                    booking.renterVehicleType ? ` (${t(`vehicle.${booking.renterVehicleType}`)})` : ''
                   }`
                 : '—'
             }
           />
-          <DetailRow label="Amount" value={`${listing.currency}${booking.totalPrice}`} highlight />
+          <DetailRow label={t('ownerDetail.amount')} value={`${listing.currency}${booking.totalPrice}`} highlight />
           {booking.status === 'pending' ? (
             <DetailRow
-              label="Respond"
+              label={t('ownerDetail.respond')}
               value={formatResponseDeadline(booking.responseDeadline)}
               highlight
             />
@@ -240,14 +242,14 @@ export function BookingDetailOwnerScreen({ navigation, route }: Props) {
             </Text>
             <View style={styles.responseActionsRow}>
               <Button
-                label="Decline"
+                label={t('common.decline')}
                 variant="secondary"
                 onPress={() => handleRespond(false)}
                 loading={isResponding}
                 style={styles.responseActionButton}
               />
               <Button
-                label="Accept"
+                label={t('common.accept')}
                 onPress={() => handleRespond(true)}
                 loading={isResponding}
                 style={styles.responseActionButton}
@@ -258,7 +260,7 @@ export function BookingDetailOwnerScreen({ navigation, route }: Props) {
 
         {booking.status === 'booked' ? (
           <>
-            <Text style={styles.sectionTitle}>Confirm Arrival</Text>
+            <Text style={styles.sectionTitle}>{t('ownerDetail.confirmArrival')}</Text>
             <View style={styles.card}>
               <Text style={styles.codeHint}>
                 Ask the renter for their 4-digit arrival code, then enter it below — the booking
@@ -278,7 +280,7 @@ export function BookingDetailOwnerScreen({ navigation, route }: Props) {
               />
               {codeError ? <Text style={styles.codeErrorText}>{codeError}</Text> : null}
               <Button
-                label="Confirm Arrival"
+                label={t('ownerDetail.confirmArrival')}
                 onPress={handleConfirmArrival}
                 loading={verifying}
                 disabled={codeInput.length !== 4}
@@ -288,28 +290,28 @@ export function BookingDetailOwnerScreen({ navigation, route }: Props) {
           </>
         ) : null}
 
-        <Text style={styles.sectionTitle}>Check-in / Check-out Tracking</Text>
+        <Text style={styles.sectionTitle}>{t('ownerDetail.tracking')}</Text>
         <View style={styles.card}>
           <DetailRow
-            label="Arrived"
-            value={booking.checkInAt ? formatTimeFromISO(booking.checkInAt) : 'Not yet'}
+            label={t('ownerDetail.arrived')}
+            value={booking.checkInAt ? formatTimeFromISO(booking.checkInAt) : t('common.notYet')}
           />
           {booking.status === 'in_progress' ? (
             <DetailRow
-              label="Time Remaining"
+              label={t('ownerDetail.timeRemaining')}
               value={formatElapsedClock(Math.max(0, new Date(booking.endTime).getTime() - now))}
               highlight
             />
           ) : null}
           <DetailRow
-            label="Vacated"
-            value={booking.checkOutAt ? formatTimeFromISO(booking.checkOutAt) : 'Not yet'}
+            label={t('ownerDetail.vacated')}
+            value={booking.checkOutAt ? formatTimeFromISO(booking.checkOutAt) : t('common.notYet')}
           />
         </View>
 
         {booking.status === 'completed' ? (
           <>
-            <Text style={styles.sectionTitle}>Rate This Renter</Text>
+            <Text style={styles.sectionTitle}>{t('ownerDetail.rateRenter')}</Text>
             <View style={styles.card}>
               {myReview === undefined ? null : myReview ? (
                 <>
@@ -317,23 +319,23 @@ export function BookingDetailOwnerScreen({ navigation, route }: Props) {
                   {myReview.comment ? (
                     <Text style={styles.reviewComment}>{myReview.comment}</Text>
                   ) : null}
-                  <Text style={styles.reviewSubmittedNote}>Thanks for rating this renter!</Text>
+                  <Text style={styles.reviewSubmittedNote}>{t('ownerDetail.thanksForRating')}</Text>
                 </>
               ) : (
                 <>
-                  <Text style={styles.reviewPrompt}>How was your experience with this renter?</Text>
+                  <Text style={styles.reviewPrompt}>{t('ownerDetail.reviewPrompt')}</Text>
                   <StarRatingInput value={ratingInput} onChange={setRatingInput} />
                   <TextInput
                     style={styles.commentInput}
                     value={comment}
                     onChangeText={setComment}
-                    placeholder="Add a comment (optional)"
+                    placeholder={t('ownerDetail.commentPlaceholder')}
                     placeholderTextColor={colors.textMuted}
                     multiline
                   />
                   {submitError ? <Text style={styles.reviewErrorText}>{submitError}</Text> : null}
                   <Button
-                    label="Submit Review"
+                    label={t('ownerDetail.submitReview')}
                     onPress={handleSubmitReview}
                     loading={submitting}
                     disabled={ratingInput === 0}
@@ -347,7 +349,7 @@ export function BookingDetailOwnerScreen({ navigation, route }: Props) {
 
         {CONTACT_REVEALED_STATUSES.includes(booking.status) ? (
           <Button
-            label="Contact Renter"
+            label={t('ownerDetail.contactRenter')}
             variant="secondary"
             onPress={handleContact}
             style={styles.contactButton}
@@ -503,16 +505,18 @@ const styles = StyleSheet.create({
     marginBottom: spacing.sm,
   },
   codeInput: {
-    ...typography.h1,
+    fontFamily: fontFamily.bold,
     fontSize: 32,
     letterSpacing: 8,
     textAlign: 'center',
+    textAlignVertical: 'center',
+    height: 64,
+    paddingLeft: 8,
     color: colors.textPrimary,
     backgroundColor: colors.background,
     borderRadius: radius.md,
     borderWidth: 1,
     borderColor: colors.surfaceBorder,
-    paddingVertical: spacing.sm,
     marginBottom: spacing.sm,
   },
   codeErrorText: {

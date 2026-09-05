@@ -52,6 +52,7 @@ export function Button({
         <Text
           style={[
             typography.buttonLabel,
+            styles.label,
             variant === 'primary' ? styles.primaryLabel : styles.secondaryLabel,
             isDisabled && styles.disabledLabel,
           ]}
@@ -71,6 +72,12 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     paddingHorizontal: spacing.lg,
     flexDirection: 'row',
+  },
+  label: {
+    // Without these the label keeps its intrinsic width inside the row and
+    // spills past the horizontal padding, which clips wider scripts.
+    flexShrink: 1,
+    textAlign: 'center',
   },
   primary: {
     backgroundColor: colors.primary,
