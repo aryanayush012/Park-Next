@@ -9,18 +9,21 @@
       "node": "22.23.1",
       "android": {
         "buildType": "apk"
-      }
+      },
+      "environment": "development"
     },
     "preview": {
       "distribution": "internal",
       "node": "22.23.1",
       "android": {
         "buildType": "apk"
-      }
+      },
+      "environment": "preview"
     },
     "production": {
       "autoIncrement": true,
-      "node": "22.23.1"
+      "node": "22.23.1",
+      "environment": "production"
     }
   },
   "submit": {
