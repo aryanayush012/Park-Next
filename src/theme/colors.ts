@@ -14,6 +14,14 @@ export const colors = {
   primaryMuted: 'rgba(245, 166, 35, 0.16)',
   secondary: '#2DD4BF',
   secondaryMuted: 'rgba(45, 212, 191, 0.16)',
+  /** Second colour of the logo mark — the graphite half of the pin. */
+  graphite: '#39424F',
+  /**
+   * The wordmark logo's own amber. Deliberately a shade brighter than `primary`: it is the
+   * brand lock-up's background (icon tile + splash), not a UI accent, so it is kept separate
+   * rather than shifting `primary` and rippling through every screen.
+   */
+  logoAmber: '#FBB112',
 
   // Semantic
   error: '#EF4444',

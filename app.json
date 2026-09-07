@@ -17,7 +17,7 @@
       "package": "com.parknext.app",
       "googleServicesFile": "./google-services.json",
       "adaptiveIcon": {
-        "backgroundColor": "#0B0D12",
+        "backgroundColor": "#FBB112",
         "foregroundImage": "./assets/android-icon-foreground.png",
         "backgroundImage": "./assets/android-icon-background.png",
         "monochromeImage": "./assets/android-icon-monochrome.png"
@@ -36,7 +36,7 @@
       [
         "expo-splash-screen",
         {
-          "backgroundColor": "#0B0D12",
+          "backgroundColor": "#FBB112",
           "image": "./assets/icon.png",
           "imageWidth": 120
         }

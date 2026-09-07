@@ -10,7 +10,6 @@ import { colors } from '../theme';
 import { LanguageProvider } from '../i18n';
 import { usePushBookingRequests } from '../hooks/usePushBookingRequests';
 import {
-  SplashScreen,
   OnboardingScreen,
   SignInScreen,
   SignUpScreen,
@@ -42,8 +41,8 @@ export function RootNavigator() {
  * which set is registered (rather than just navigating within one fixed set)
  * is what makes a real Supabase sign-out — which flips `isSignedIn` from
  * outside any screen's own navigation calls, via `onAuthStateChange` —
- * reliably land back on Splash, and what lets an already-signed-in user skip
- * straight past Splash/Onboarding/sign-in on a cold start once a real session
+ * reliably land back on Onboarding, and what lets an already-signed-in user
+ * skip straight past Onboarding/sign-in on a cold start once a real session
  * exists.
  *
  * `isPasswordRecovery` is checked *first*, ahead of `isSignedIn` — a
@@ -84,7 +83,6 @@ function RootNavigatorInner() {
         <Stack.Screen name="Main" component={MainNavigator} />
       ) : (
         <>
-          <Stack.Screen name="Splash" component={SplashScreen} />
           <Stack.Screen name="Onboarding" component={OnboardingScreen} />
           <Stack.Screen name="SignIn" component={SignInScreen} />
           <Stack.Screen name="SignUp" component={SignUpScreen} />

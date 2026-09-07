@@ -15,7 +15,6 @@ export interface ScheduleSelection {
 }
 
 export type RootStackParamList = {
-  Splash: undefined;
   Onboarding: undefined;
   SignIn: undefined;
   SignUp: undefined;

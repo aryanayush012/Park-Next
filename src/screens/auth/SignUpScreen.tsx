@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import {
   ActivityIndicator,
+  Image,
   KeyboardAvoidingView,
   Platform,
   Pressable,
@@ -143,9 +144,12 @@ export function SignUpScreen({ navigation }: Props) {
           contentContainerStyle={styles.scrollContent}
           keyboardShouldPersistTaps="handled"
         >
-          <View style={styles.logoMark}>
-            <Text style={styles.logoLetter}>P</Text>
-          </View>
+          <Image
+            source={require('../../../assets/logo-wordmark.png')}
+            style={styles.logoMark}
+            resizeMode="contain"
+            accessibilityLabel="ParkNext"
+          />
 
           <Text style={styles.title}>{t('signUp.title')}</Text>
           <Text style={styles.subtitle}>{t('signUp.subtitle')}</Text>
@@ -279,17 +283,10 @@ const styles = StyleSheet.create({
     flexGrow: 1,
   },
   logoMark: {
-    width: 56,
-    height: 56,
-    borderRadius: radius.lg,
-    backgroundColor: colors.primary,
-    alignItems: 'center',
-    justifyContent: 'center',
+    // 1400 x 271 artwork, so the height follows from the width.
+    width: 168,
+    height: 33,
     marginBottom: spacing.lg,
-  },
-  logoLetter: {
-    ...typography.h2,
-    color: colors.textOnPrimary,
   },
   title: {
     ...typography.h1,

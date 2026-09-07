@@ -27,7 +27,7 @@ import { dataSource } from '../../data/dataSource';
 import { AMENITIES, AMENITY_SELECTOR_KEYS } from '../../data/mockData';
 import { useCurrentLocation } from '../../hooks/useCurrentLocation';
 import { useRealtimeTable } from '../../hooks/useRealtimeTable';
-import { isListingAvailableForWindow } from '../../utils/listingAvailability';
+import { getAvailableOverlap, isListingAvailableForWindow } from '../../utils/listingAvailability';
 import {
   clampToStep,
   formatDurationLabel,
@@ -279,8 +279,34 @@ export function HomeMapScreen({ navigation }: Props) {
     }
   };
 
+  /**
+   * A line for spots that can only take part of the requested window, e.g.
+   * asking 4–6pm at a spot that closes at 5. Blank for a full match, and for
+   * an instant search, which is a point in time with nothing to trim.
+   */
+  const partialNote = (listing: Listing): string | undefined => {
+    if (searchMode !== 'later') return undefined;
+    const overlap = getAvailableOverlap(listing, availabilityWindow);
+    if (!overlap) return undefined;
+    if (
+      overlap.startMinutes === availabilityWindow.startMinutes &&
+      overlap.endMinutes === availabilityWindow.endMinutes
+    ) {
+      return undefined;
+    }
+    return t('home.partialMatch', {
+      start: minutesToTimeLabel(overlap.startMinutes),
+      end: minutesToTimeLabel(overlap.endMinutes),
+    });
+  };
+
   const goToDetail = (listingId: string) => {
     const defaultBookingType: BookingType = searchMode === 'now' ? 'instant' : 'advance';
+    // Trim the requested window to what this particular spot can take, so
+    // Listing Detail and Booking Flow are pre-filled with a window that can
+    // actually be booked rather than one that will be rejected.
+    const listing = listings.find((item) => item.id === listingId);
+    const overlap = listing ? getAvailableOverlap(listing, availabilityWindow) : null;
     // Carries the exact date/time already chosen in the "Schedule for later"
     // modal forward, so neither ListingDetail nor BookingFlow ask for it
     // again — only relevant for 'later', since 'now' always means "starts now".
@@ -288,8 +314,10 @@ export function HomeMapScreen({ navigation }: Props) {
       searchMode === 'later'
         ? {
             dateOffset: scheduleDateOffset,
-            startMinutes: scheduleStartMinutes,
-            durationMinutes: scheduleDurationMinutes,
+            startMinutes: overlap?.startMinutes ?? scheduleStartMinutes,
+            durationMinutes: overlap
+              ? overlap.endMinutes - overlap.startMinutes
+              : scheduleDurationMinutes,
           }
         : undefined;
     navigation.navigate('ListingDetail', { listingId, defaultBookingType, schedule });
@@ -401,9 +429,7 @@ export function HomeMapScreen({ navigation }: Props) {
           >
             <Ionicons name="location-outline" size={23} color={colors.textSecondary} />
             <Text style={styles.locationNoticeText}>
-              {locationNeedsSettings
-                ? t('home.tapToFetch', { error: locationError ?? '' })
-                : t('home.tapRetry')}
+              {locationNeedsSettings ? t('home.tapToFetch') : t('home.tapRetry')}
             </Text>
           </Pressable>
         )}
@@ -450,6 +476,7 @@ export function HomeMapScreen({ navigation }: Props) {
                 ratingCount={item.ratingCount}
                 status={item.status}
                 amenities={item.amenities.map((key) => AMENITIES[key])}
+                note={partialNote(item)}
                 onPress={() => goToDetail(item.id)}
               />
             </View>

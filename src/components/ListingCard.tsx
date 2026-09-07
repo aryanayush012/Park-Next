@@ -19,6 +19,12 @@ export interface ListingCardProps {
   ratingCount: number;
   status: ListingStatus;
   amenities: Amenity[];
+  /**
+   * A short line under the address — used to say a spot only covers part
+   * of the requested window, so a shortened booking is visible while
+   * choosing rather than discovered at checkout.
+   */
+  note?: string;
   onPress?: (event: GestureResponderEvent) => void;
   /**
    * Rendered over the photo's top-right corner, opposite the status badge —
@@ -44,6 +50,7 @@ export function ListingCard({
   ratingCount,
   status,
   amenities,
+  note,
   onPress,
   topRightAction,
   bottomRightAction,
@@ -74,6 +81,7 @@ export function ListingCard({
             {t('card.distanceAddress', { km: distanceKm.toFixed(1), address })}
           </Text>
         </View>
+        {note ? <Text style={styles.note}>{note}</Text> : null}
         <View style={styles.priceRow}>
           <Text style={styles.price}>
             {currency}
@@ -149,6 +157,11 @@ const styles = StyleSheet.create({
     color: colors.textMuted,
     marginLeft: 4,
     flexShrink: 1,
+  },
+  note: {
+    ...typography.caption,
+    color: colors.primary,
+    marginBottom: spacing.xs,
   },
   priceRow: {
     flexDirection: 'row',

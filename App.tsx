@@ -1,10 +1,11 @@
-import React, { useEffect } from 'react';
+import React, { useEffect, useState } from 'react';
 import { StatusBar } from 'expo-status-bar';
 import { View } from 'react-native';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { NavigationContainer, DarkTheme, Theme as NavTheme } from '@react-navigation/native';
 import { navigationRef } from './src/navigation/navigationRef';
+import { AnimatedSplash } from './src/components/AnimatedSplash';
 import * as SplashScreen from 'expo-splash-screen';
 import {
   useFonts,
@@ -34,6 +35,10 @@ const navigationTheme: NavTheme = {
 };
 
 export default function App() {
+  // The overlay sits above the navigator rather than replacing it, so the
+  // whole app mounts and settles underneath while the animation plays.
+  const [splashDone, setSplashDone] = useState(false);
+
   const [fontsLoaded] = useFonts({
     Inter_400Regular,
     Inter_500Medium,
@@ -60,6 +65,7 @@ export default function App() {
           <NavigationContainer ref={navigationRef} theme={navigationTheme}>
             <RootNavigator />
           </NavigationContainer>
+          {splashDone ? null : <AnimatedSplash onFinish={() => setSplashDone(true)} />}
         </View>
       </SafeAreaProvider>
     </GestureHandlerRootView>
