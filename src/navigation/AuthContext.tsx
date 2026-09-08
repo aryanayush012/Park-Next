@@ -65,9 +65,42 @@ interface AuthContextValue {
    * mock mode just flips the local flag, giving you a real way to get back
    * to the sign-in screens without reloading the whole app. */
   signOut: () => Promise<void>;
+  /**
+   * Permanently deletes the signed-in account and everything belonging to
+   * it, then signs out. Required by Google Play for any app with account
+   * creation, and promised by the privacy policy.
+   *
+   * The work happens in the `delete-account` Edge Function, because removing
+   * a row from `auth.users` needs the service role key — which must never
+   * reach a client. Throws with the server's own message if it fails, so the
+   * caller can say what went wrong rather than claiming a deletion that
+   * didn't happen.
+   */
+  deleteAccount: () => Promise<void>;
 }
 
 const AuthContext = createContext<AuthContextValue | undefined>(undefined);
+
+/**
+ * supabase-js collapses every non-2xx from an Edge Function into the same
+ * generic "Edge Function returned a non-2xx status code" and hangs the real
+ * response off `context`. For an irreversible action the actual reason is
+ * worth surfacing, so dig it out of the body when it's there.
+ */
+async function describeFunctionError(error: unknown): Promise<string> {
+  const response = (error as { context?: Response }).context;
+  if (response && typeof response.json === 'function') {
+    try {
+      const body = (await response.json()) as { error?: unknown };
+      if (typeof body?.error === 'string' && body.error) {
+        return body.error;
+      }
+    } catch {
+      // Not a JSON body — fall through to whatever the error itself says.
+    }
+  }
+  return error instanceof Error ? error.message : 'Account deletion failed';
+}
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [userId, setUserId] = useState(isSupabaseConfigured ? '' : CURRENT_USER_ID);
@@ -124,6 +157,27 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     setIsSignedIn(false);
   };
 
+  const deleteAccount = async () => {
+    if (!isSupabaseConfigured) {
+      // Mock mode has no account and no stored data, so signing out really
+      // is the whole operation rather than a fallback pretending to be one.
+      setIsSignedIn(false);
+      return;
+    }
+
+    const { error } = await supabase.functions.invoke('delete-account');
+    if (error) {
+      throw new Error(await describeFunctionError(error));
+    }
+
+    // `scope: 'local'` because the account this session belonged to no longer
+    // exists — a default (global) sign-out would try to revoke a session
+    // server-side for a user that is gone and fail. All that is left to do is
+    // clear the stored session, which flips `isSignedIn` and sends
+    // RootNavigator back to the sign-in stack.
+    await supabase.auth.signOut({ scope: 'local' });
+  };
+
   const beginPasswordRecovery = () => {
     setIsPasswordRecovery(true);
   };
@@ -147,6 +201,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         endPasswordRecovery,
         signInMock,
         signOut,
+        deleteAccount,
       }}
     >
       {children}

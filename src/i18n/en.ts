@@ -342,6 +342,14 @@ export const en = {
   "stepper.outOfRange": "Choose a value between {{min}} and {{max}}.",
   "stepper.invalid": "Enter a valid time.",
   "home.partialMatch": "Available {{start}} – {{end}} only",
+  'profile.deleteAccount': 'Delete account',
+  'profile.deleteAccountSubtitle': 'Permanently remove your account and everything in it.',
+  'profile.deleteTitle': 'Delete your account?',
+  'profile.deleteBody': 'This permanently removes your profile, your listings and their photos, your bookings, and your reviews. It cannot be undone.',
+  'profile.deleteConfirm': 'Delete everything',
+  'profile.deleteFailedTitle': 'Could not delete your account',
+  'profile.deleteFailedBody': 'Nothing was deleted. Please try again, or email sevice.parknext@gmail.com and we will do it for you.',
+  'common.ok': 'OK',
 } as const;
 
 /** Every key the app can ask for. Adding one here obliges every language. */

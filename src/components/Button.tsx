@@ -5,11 +5,12 @@ import {
   Pressable,
   StyleSheet,
   Text,
+  TextStyle,
   ViewStyle,
 } from 'react-native';
 import { colors, elevation, radius, spacing, typography } from '../theme';
 
-export type ButtonVariant = 'primary' | 'secondary';
+export type ButtonVariant = 'primary' | 'secondary' | 'danger';
 
 export interface ButtonProps {
   label: string;
@@ -31,6 +32,7 @@ export function Button({
   testID,
 }: ButtonProps) {
   const isDisabled = disabled || loading;
+  const look = VARIANTS[variant];
 
   return (
     <Pressable
@@ -39,21 +41,21 @@ export function Button({
       disabled={isDisabled}
       style={({ pressed }) => [
         styles.base,
-        variant === 'primary' ? styles.primary : styles.secondary,
-        variant === 'primary' && !isDisabled ? elevation.glowPrimary : elevation.none,
-        pressed && !isDisabled && (variant === 'primary' ? styles.primaryPressed : styles.secondaryPressed),
+        look.container,
+        !isDisabled ? look.glow : elevation.none,
+        pressed && !isDisabled && look.pressed,
         isDisabled && styles.disabled,
         style,
       ]}
     >
       {loading ? (
-        <ActivityIndicator color={variant === 'primary' ? colors.textOnPrimary : colors.primary} />
+        <ActivityIndicator color={look.spinner} />
       ) : (
         <Text
           style={[
             typography.buttonLabel,
             styles.label,
-            variant === 'primary' ? styles.primaryLabel : styles.secondaryLabel,
+            look.label,
             isDisabled && styles.disabledLabel,
           ]}
         >
@@ -63,6 +65,50 @@ export function Button({
     </Pressable>
   );
 }
+
+/**
+ * One entry per variant, so adding another is a new row rather than another
+ * branch in four separate ternaries.
+ *
+ * Only `primary` glows: the glow is the app's way of saying "this is the
+ * thing to press", and a destructive button should never be that.
+ */
+const VARIANTS: Record<
+  ButtonVariant,
+  {
+    container: ViewStyle;
+    pressed: ViewStyle;
+    glow: ViewStyle;
+    label: TextStyle;
+    spinner: string;
+  }
+> = {
+  primary: {
+    container: { backgroundColor: colors.primary },
+    pressed: { backgroundColor: '#DC901C' },
+    glow: elevation.glowPrimary,
+    label: { color: colors.textOnPrimary },
+    spinner: colors.textOnPrimary,
+  },
+  secondary: {
+    container: {
+      backgroundColor: 'transparent',
+      borderWidth: 1.5,
+      borderColor: colors.surfaceBorder,
+    },
+    pressed: { backgroundColor: colors.surface, borderColor: colors.primary },
+    glow: elevation.none,
+    label: { color: colors.textPrimary },
+    spinner: colors.primary,
+  },
+  danger: {
+    container: { backgroundColor: colors.error },
+    pressed: { backgroundColor: '#C93434' },
+    glow: elevation.none,
+    label: { color: colors.white },
+    spinner: colors.white,
+  },
+};
 
 const styles = StyleSheet.create({
   base: {
@@ -79,30 +125,9 @@ const styles = StyleSheet.create({
     flexShrink: 1,
     textAlign: 'center',
   },
-  primary: {
-    backgroundColor: colors.primary,
-  },
-  primaryPressed: {
-    backgroundColor: '#DC901C',
-  },
-  secondary: {
-    backgroundColor: 'transparent',
-    borderWidth: 1.5,
-    borderColor: colors.surfaceBorder,
-  },
-  secondaryPressed: {
-    backgroundColor: colors.surface,
-    borderColor: colors.primary,
-  },
   disabled: {
     backgroundColor: colors.surface,
     borderColor: colors.surfaceBorder,
-  },
-  primaryLabel: {
-    color: colors.textOnPrimary,
-  },
-  secondaryLabel: {
-    color: colors.textPrimary,
   },
   disabledLabel: {
     color: colors.textMuted,

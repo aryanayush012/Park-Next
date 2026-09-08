@@ -15,6 +15,7 @@ import { dataSource } from '../../data/dataSource';
 import { pickSinglePhotoFromLibrary, takePhotoWithCamera } from '../../utils/imagePicker';
 import { formatPhone } from '../../utils/phone';
 import { PhoneRequiredDialog } from '../../components/PhoneRequiredDialog';
+import { ConfirmDialog } from '../../components/ConfirmDialog';
 import { LANGUAGES, useTranslation } from '../../i18n';
 
 interface Ratings {
@@ -25,7 +26,7 @@ interface Ratings {
 export function ProfileScreen() {
   const { activeRole, setActiveRole } = useRole();
   const { name, about, phone, avatarUrl, updateProfile } = useUserProfile();
-  const { userId, email, signOut } = useAuth();
+  const { userId, email, signOut, deleteAccount } = useAuth();
   const { t, language } = useTranslation();
   const isProvider = activeRole === 'provider';
 
@@ -34,6 +35,9 @@ export function ProfileScreen() {
   const [aboutInput, setAboutInput] = useState(about);
   const [phoneSheetVisible, setPhoneSheetVisible] = useState(false);
   const [isSigningOut, setIsSigningOut] = useState(false);
+  const [isDeleting, setIsDeleting] = useState(false);
+  const [deleteConfirmVisible, setDeleteConfirmVisible] = useState(false);
+  const [deleteFailed, setDeleteFailed] = useState(false);
   const [ratings, setRatings] = useState<Ratings | undefined>(undefined);
   const [sourceSheetVisible, setSourceSheetVisible] = useState(false);
   const [languageSheetVisible, setLanguageSheetVisible] = useState(false);
@@ -75,10 +79,9 @@ export function ProfileScreen() {
   };
 
   const handleSave = () => {
-    // The number is deliberately not editable here. A number typed into a
-    // plain field is unverified, which would make the SMS step pointless —
-    // so changing it goes through `PhoneRequiredDialog` and its OTP, and
-    // this form only owns name and bio.
+    // The number is deliberately not editable here — it goes through
+    // `PhoneRequiredDialog`, which owns validation and the E.164 conversion
+    // in one place. This form owns name and bio only.
     updateProfile({ name: nameInput.trim(), about: aboutInput.trim() });
     setIsEditing(false);
   };
@@ -88,6 +91,25 @@ export function ProfileScreen() {
     await signOut();
     // No navigation call needed — RootNavigator swaps back to the
     // Splash/Onboarding/Sign-up stack on its own once `isSignedIn` flips.
+  };
+
+  const handleDeleteAccount = async () => {
+    setIsDeleting(true);
+    try {
+      await deleteAccount();
+      // Nothing to navigate to — the session is gone, so RootNavigator swaps
+      // back to the sign-in stack and this screen unmounts.
+    } catch (error) {
+      setIsDeleting(false);
+      setDeleteConfirmVisible(false);
+      // The server's own message is untranslated and technical, so it goes to
+      // the log rather than the dialog. What the person needs to know is that
+      // nothing was deleted — which the Edge Function guarantees by removing
+      // storage before touching the account — and how to get it done another
+      // way.
+      console.warn('[delete-account]', error);
+      setDeleteFailed(true);
+    }
   };
 
   const hasRatings = Boolean(ratings && ratings.ratingCount > 0);
@@ -264,7 +286,48 @@ export function ProfileScreen() {
             loading={isSigningOut}
           />
         </View>
+
+        {/* Its own card, away from Sign Out — the two are one tap apart and
+            only one of them is reversible. */}
+        <View style={styles.card}>
+          <Pressable
+            onPress={() => setDeleteConfirmVisible(true)}
+            disabled={isDeleting}
+            accessibilityRole="button"
+            accessibilityLabel={t('profile.deleteAccount')}
+            style={({ pressed }) => [styles.dangerRow, pressed && styles.dangerRowPressed]}
+          >
+            <View style={styles.settingText}>
+              <Text style={styles.dangerTitle}>{t('profile.deleteAccount')}</Text>
+              <Text style={styles.modeSubtitle}>{t('profile.deleteAccountSubtitle')}</Text>
+            </View>
+            <Ionicons name="trash-outline" size={20} color={colors.error} />
+          </Pressable>
+        </View>
       </ScrollView>
+
+      <ConfirmDialog
+        visible={deleteConfirmVisible}
+        tone="danger"
+        icon="trash-outline"
+        title={t('profile.deleteTitle')}
+        body={t('profile.deleteBody')}
+        confirmLabel={t('profile.deleteConfirm')}
+        cancelLabel={t('common.cancel')}
+        loading={isDeleting}
+        onConfirm={handleDeleteAccount}
+        onCancel={() => setDeleteConfirmVisible(false)}
+      />
+
+      <ConfirmDialog
+        visible={deleteFailed}
+        tone="danger"
+        icon="alert-circle-outline"
+        title={t('profile.deleteFailedTitle')}
+        body={t('profile.deleteFailedBody')}
+        confirmLabel={t('common.ok')}
+        onConfirm={() => setDeleteFailed(false)}
+      />
 
       <PhoneRequiredDialog
         visible={phoneSheetVisible}
@@ -538,6 +601,26 @@ const styles = StyleSheet.create({
   modeTitle: {
     ...typography.bodyMedium,
     color: colors.textPrimary,
+    marginBottom: 2,
+  },
+
+  // --- delete account --------------------------------------------------
+  dangerRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.md,
+    // Negative margin so the pressed highlight fills the card's padding
+    // instead of leaving an unpressable border around the row.
+    margin: -spacing.md,
+    padding: spacing.md,
+    borderRadius: radius.lg,
+  },
+  dangerRowPressed: {
+    backgroundColor: colors.errorMuted,
+  },
+  dangerTitle: {
+    ...typography.bodyMedium,
+    color: colors.error,
     marginBottom: 2,
   },
   modeSubtitle: {

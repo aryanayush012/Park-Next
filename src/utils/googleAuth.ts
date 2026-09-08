@@ -51,6 +51,54 @@ export type GoogleSignInResult =
  */
 export const GOOGLE_REDIRECT_URI = 'parknext://auth-callback';
 
+/**
+ * How long to wait for the browser tab to come back before giving up.
+ *
+ * `openAuthSessionAsync` resolves on exactly two events: the browser reaching
+ * `GOOGLE_REDIRECT_URI`, or the person dismissing the tab. If Supabase sends
+ * the browser anywhere else — which is what happens when
+ * `GOOGLE_REDIRECT_URI` is not in Authentication → URL Configuration →
+ * Redirect URLs, since it then falls back to the Site URL — neither ever
+ * happens and the promise simply never settles. The sign-in button spins
+ * with no error, forever, which is the least debuggable failure this flow
+ * can produce.
+ *
+ * Generous on purpose: a real sign-in can involve picking an account, a
+ * password, and 2FA. This is a backstop against a silent hang, not a
+ * patience limit.
+ */
+const AUTH_SESSION_TIMEOUT_MS = 180_000;
+
+type BrowserOutcome =
+  | WebBrowser.WebBrowserAuthSessionResult
+  | { type: 'timeout'; url?: undefined };
+
+/**
+ * `openAuthSessionAsync`, but it always settles.
+ *
+ * On timeout the tab is dismissed explicitly — which also resolves the
+ * original promise, so nothing is left dangling behind the race.
+ */
+async function openAuthSessionWithTimeout(
+  authUrl: string,
+  redirectTo: string
+): Promise<BrowserOutcome> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+
+  const timeout = new Promise<BrowserOutcome>((resolve) => {
+    timer = setTimeout(() => {
+      WebBrowser.dismissAuthSession();
+      resolve({ type: 'timeout' });
+    }, AUTH_SESSION_TIMEOUT_MS);
+  });
+
+  try {
+    return await Promise.race([WebBrowser.openAuthSessionAsync(authUrl, redirectTo), timeout]);
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
+}
+
 export async function signInWithGoogle(): Promise<GoogleSignInResult> {
   // Web has no custom scheme; there the computed origin-based URL is right.
   const redirectTo = Platform.OS === 'web' ? makeRedirectUri() : GOOGLE_REDIRECT_URI;
@@ -72,7 +120,27 @@ export async function signInWithGoogle(): Promise<GoogleSignInResult> {
     return { status: 'error', message: error?.message ?? 'Could not start Google sign-in.' };
   }
 
-  const result = await WebBrowser.openAuthSessionAsync(data.url, redirectTo);
+  const result = await openAuthSessionWithTimeout(data.url, redirectTo);
+
+  if (__DEV__) {
+    // eslint-disable-next-line no-console
+    // Only the 'success' variant carries a url.
+    console.log(
+      '[ParkNext] Google sign-in browser result:',
+      result.type,
+      'url' in result ? result.url : ''
+    );
+  }
+
+  if (result.type === 'timeout') {
+    return {
+      status: 'error',
+      message:
+        `The browser never returned to the app. Check that "${redirectTo}" is listed under ` +
+        'Authentication → URL Configuration → Redirect URLs in Supabase, and that you are ' +
+        'running a development or preview build rather than Expo Go.',
+    };
+  }
 
   if (result.type !== 'success') {
     // 'cancel'/'dismiss' — the person closed the browser tab themselves.
@@ -88,7 +156,16 @@ export async function signInWithGoogle(): Promise<GoogleSignInResult> {
   const accessToken = params.access_token;
   const refreshToken = params.refresh_token;
   if (!accessToken || !refreshToken) {
-    return { status: 'error', message: 'Google sign-in did not complete. Try again.' };
+    // Landed back in the app, but without the tokens Supabase appends on a
+    // successful sign-in. Usually an `error=` / `error_description=` on the
+    // callback URL, so say what actually came back rather than "try again".
+    const described = params.error_description || params.error;
+    return {
+      status: 'error',
+      message: described
+        ? decodeURIComponent(described).replace(/\+/g, ' ')
+        : 'Google sign-in did not return a session. Try again.',
+    };
   }
 
   const { error: sessionError } = await supabase.auth.setSession({

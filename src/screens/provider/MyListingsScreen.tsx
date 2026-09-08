@@ -1,10 +1,11 @@
 import React, { useCallback, useState } from 'react';
-import { Alert, FlatList, Pressable, StyleSheet, Switch, Text, View } from 'react-native';
+import { FlatList, Pressable, StyleSheet, Switch, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useFocusEffect } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { ListingCard } from '../../components/ListingCard';
+import { ConfirmDialog } from '../../components/ConfirmDialog';
 import { colors, radius, spacing, typography } from '../../theme';
 import { ProviderListingsStackParamList } from '../../navigation/types';
 import { dataSource } from '../../data/dataSource';
@@ -20,6 +21,12 @@ export function MyListingsScreen({ navigation }: Props) {
   const { userId } = useAuth();
   const { t } = useTranslation();
   const [listings, setListings] = useState<Listing[]>([]);
+  /** The listing awaiting a delete confirmation, if any. Holding the whole
+   * listing rather than an id keeps its title available for the dialog. */
+  const [pendingDelete, setPendingDelete] = useState<Listing | null>(null);
+  const [isDeleting, setIsDeleting] = useState(false);
+  /** Which failure to explain after a delete is refused, or null. */
+  const [deleteError, setDeleteError] = useState<'blocked' | 'failed' | null>(null);
 
   const load = useCallback(async () => {
     const own = await dataSource.getListingsByOwner(userId);
@@ -44,37 +51,25 @@ export function MyListingsScreen({ navigation }: Props) {
     }
   };
 
-  const handleDelete = (listing: Listing) => {
-    Alert.alert(
-      t('listings.deleteTitle'),
-      t('listings.deleteBody', { title: listing.title }),
-      [
-        { text: t('common.cancel'), style: 'cancel' },
-        {
-          text: t('common.delete'),
-          style: 'destructive',
-          onPress: async () => {
-            try {
-              await dataSource.deleteListing(listing.id);
-              setListings((prev) => prev.filter((l) => l.id !== listing.id));
-            } catch (error) {
-              const hasLiveBookings =
-                error instanceof Error && error.message === LISTING_HAS_ACTIVE_BOOKINGS;
-              Alert.alert(
-                t(
-                  hasLiveBookings
-                    ? 'listings.deleteBlockedTitle'
-                    : 'listings.deleteFailedTitle'
-                ),
-                t(
-                  hasLiveBookings ? 'listings.deleteBlockedBody' : 'listings.deleteFailedBody'
-                )
-              );
-            }
-          },
-        },
-      ]
-    );
+  const confirmDelete = async () => {
+    if (!pendingDelete) return;
+    const listing = pendingDelete;
+    setIsDeleting(true);
+    try {
+      await dataSource.deleteListing(listing.id);
+      setListings((prev) => prev.filter((l) => l.id !== listing.id));
+      setPendingDelete(null);
+    } catch (error) {
+      // A listing with live bookings is refused on purpose — that is a
+      // different message from something actually going wrong, because one
+      // is fixable by the owner and the other is not.
+      const hasLiveBookings =
+        error instanceof Error && error.message === LISTING_HAS_ACTIVE_BOOKINGS;
+      setPendingDelete(null);
+      setDeleteError(hasLiveBookings ? 'blocked' : 'failed');
+    } finally {
+      setIsDeleting(false);
+    }
   };
 
   const handleEdit = (listing: Listing) => {
@@ -142,7 +137,7 @@ export function MyListingsScreen({ navigation }: Props) {
               topRightAction={
                 item.isActive ? null : (
                   <Pressable
-                    onPress={() => handleDelete(item)}
+                    onPress={() => setPendingDelete(item)}
                     hitSlop={8}
                     accessibilityRole="button"
                     accessibilityLabel={t('listings.deleteA11y', { title: item.title })}
@@ -169,6 +164,37 @@ export function MyListingsScreen({ navigation }: Props) {
         ListEmptyComponent={
           <Text style={styles.emptyText}>{t('listings.empty')}</Text>
         }
+      />
+
+      <ConfirmDialog
+        visible={pendingDelete !== null}
+        tone="danger"
+        icon="trash-outline"
+        title={t('listings.deleteTitle')}
+        body={t('listings.deleteBody', { title: pendingDelete?.title ?? '' })}
+        confirmLabel={t('common.delete')}
+        cancelLabel={t('common.cancel')}
+        loading={isDeleting}
+        onConfirm={confirmDelete}
+        onCancel={() => setPendingDelete(null)}
+      />
+
+      <ConfirmDialog
+        visible={deleteError !== null}
+        tone="danger"
+        icon={deleteError === 'blocked' ? 'time-outline' : 'alert-circle-outline'}
+        title={t(
+          deleteError === 'blocked'
+            ? 'listings.deleteBlockedTitle'
+            : 'listings.deleteFailedTitle'
+        )}
+        body={t(
+          deleteError === 'blocked'
+            ? 'listings.deleteBlockedBody'
+            : 'listings.deleteFailedBody'
+        )}
+        confirmLabel={t('common.ok')}
+        onConfirm={() => setDeleteError(null)}
       />
     </SafeAreaView>
   );

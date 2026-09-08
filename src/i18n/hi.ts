@@ -348,4 +348,12 @@ export const hi: Record<TranslationKey, string> = {
   "stepper.outOfRange": "{{min}} से {{max}} के बीच कोई मान चुनें।",
   "stepper.invalid": "सही समय डालें।",
   "home.partialMatch": "सिर्फ़ {{start}} – {{end}} उपलब्ध",
+  "profile.deleteAccount": "खाता मिटाएँ",
+  "profile.deleteAccountSubtitle": "अपना खाता और उसमें मौजूद सब कुछ हमेशा के लिए मिटाएँ।",
+  "profile.deleteTitle": "खाता मिटाना है?",
+  "profile.deleteBody": "इससे आपकी प्रोफ़ाइल, आपकी जगहें और उनकी तस्वीरें, आपकी बुकिंग और आपकी समीक्षाएँ हमेशा के लिए मिट जाएँगी। इसे वापस नहीं लाया जा सकता।",
+  "profile.deleteConfirm": "सब कुछ मिटाएँ",
+  "profile.deleteFailedTitle": "खाता नहीं मिट सका",
+  "profile.deleteFailedBody": "कुछ भी नहीं मिटाया गया। फिर कोशिश करें, या sevice.parknext@gmail.com पर लिखें और हम आपके लिए कर देंगे।",
+  "common.ok": "ठीक है",
 };

@@ -94,7 +94,7 @@ problems, not before.
    so an unverified number cannot be written past the OTP.
 
 ## 5. Copy your API keys into the app
-. In the sidebar, go to **Project Settings → API**.
+1. In the sidebar, go to **Project Settings → API**.
 2. You need two values from that page:
    - **Project URL** (looks like `https://xxxxxxxxxxxx.supabase.co`)
    - **anon / public** key (a long string starting with `eyJ...`) — **not**
@@ -113,6 +113,38 @@ That's it — the app detects those two values automatically and switches
 from mock data to your real Supabase project, including real email OTP
 sign-in. If you ever remove or blank out `.env`, it falls back to mock mode
 again with no other changes needed.
+
+## 6. Deploy the Edge Functions
+
+Two server-side functions do work no client key is allowed to do. Neither is
+covered by `db push` — they deploy separately, and the app degrades quietly
+without them (no push notifications; a failing Delete account button).
+
+```
+npx supabase functions deploy notify-booking-request
+npx supabase functions deploy delete-account
+```
+
+Both run with the service role key, which Supabase injects as
+`SUPABASE_SERVICE_ROLE_KEY`. You do not set it yourself, and it must never
+appear in the app bundle.
+
+- **`notify-booking-request`** — pushes the spot's owner when someone
+  requests a booking. Needs the service role because it reads the *owner's*
+  `push_token`, which RLS deliberately hides from the renter making the
+  request.
+- **`delete-account`** — deletes the caller's account, which Google Play
+  requires and `park-next.in/privacy` promises. Needs the service role
+  because removing a row from `auth.users` is an admin operation. It takes
+  the user id from the caller's verified JWT and never from the request
+  body, so it cannot be used to delete anyone else.
+
+  Deleting the `auth.users` row cascades to profiles, listings, bookings,
+  reviews and reports. It does **not** reach Storage, so the function
+  removes every file under the user's `<userId>/` prefix in
+  `listing-photos` and `avatars` first — before touching the account, so a
+  storage failure leaves nothing half-deleted rather than orphaning photos
+  on public URLs.
 
 ## What's already wired up on the app side
 
