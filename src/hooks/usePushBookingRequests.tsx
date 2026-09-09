@@ -41,7 +41,15 @@ export function usePushBookingRequests(): void {
 
       if (!isSupabaseConfigured || !userId) return;
       const token = await getPushToken();
-      if (cancelled || !token) return;
+      if (cancelled) return;
+      if (!token) {
+        // getPushToken() already logs the specific reason (permission,
+        // missing project id, or the native call itself failing) — this is
+        // just the confirmation that registration was skipped this launch,
+        // so "no push ever arrives" doesn't read as an unexplained silence.
+        console.warn('[ParkNext] No push token to register this launch.');
+        return;
+      }
 
       const { error } = await supabase
         .from('profiles')

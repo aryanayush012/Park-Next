@@ -113,8 +113,17 @@ Deno.serve(async (req: Request) => {
   });
 
   const result = await response.json();
+
+  // Expo's push API returns HTTP 200 even when the push itself failed —
+  // credential problems, an unregistered device, a malformed token — the
+  // failure lives in `data.status` inside the body, not the HTTP status.
+  // Confirmed against this exact project: a bad FCM credential returned 200
+  // with `{"data":{"status":"error", ...}}`, which `response.ok` alone
+  // would have reported as a successful send.
+  const pushFailed = response.status >= 400 || result?.data?.status === 'error';
+
   return new Response(JSON.stringify(result), {
-    status: response.ok ? 200 : 502,
+    status: pushFailed ? 502 : 200,
     headers: { 'Content-Type': 'application/json' },
   });
 });

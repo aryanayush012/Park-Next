@@ -54,3 +54,7 @@ google-service-account*.json
 # ships inside every APK anyway, and EAS Build cannot see files git ignores.
 # Ignoring it silently breaks push notifications and phone auth in builds.
 !google-services.json
+
+# Supabase CLI's own local cache (project ref, version pins) — regenerated
+# on every `supabase` command, never meant to be shared.
+supabase/.temp/

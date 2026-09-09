@@ -2,6 +2,7 @@
   "expo": {
     "name": "ParkNext",
     "slug": "parknext-app",
+    "owner": "parknext",
     "scheme": "parknext",
     "version": "1.0.0",
     "orientation": "portrait",
@@ -58,7 +59,7 @@
     ],
     "extra": {
       "eas": {
-        "projectId": "257aaa0a-75a0-4f21-b77b-892b40190879"
+        "projectId": "590efb1c-7b7c-4009-8faf-e696879ddf39"
       }
     }
   }

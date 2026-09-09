@@ -48,7 +48,11 @@ async function loadNotifications(): Promise<NotificationsApi | null> {
       }),
     });
     cachedModule = mod;
-  } catch {
+  } catch (error) {
+    console.warn(
+      '[ParkNext] expo-notifications failed to load — notifications are disabled this session:',
+      error instanceof Error ? error.message : error
+    );
     cachedModule = null;
   }
   return cachedModule;
@@ -70,14 +74,26 @@ export async function ensureNotificationSetup(): Promise<boolean> {
 
   try {
     const { status } = await Notifications.requestPermissionsAsync();
-    if (status !== 'granted') return false;
+    if (status !== 'granted') {
+      // A denied/undetermined permission is the single most common reason
+      // a provider never gets booking-request pushes, and it fails
+      // completely silently otherwise — nothing downstream knows to say
+      // anything, since there's simply no token to register.
+      console.warn('[ParkNext] Notification permission not granted:', status);
+      return false;
+    }
 
     if (Platform.OS === 'android') {
       await Notifications.setNotificationChannelAsync(ANDROID_CHANNEL_ID, {
         name: 'Booking reminders',
         importance: Notifications.AndroidImportance.HIGH,
         vibrationPattern: [0, 400, 250, 400],
-        sound: 'default',
+        // Omitted, not 'default': a channel's `sound` is a *bundled custom
+        // sound resource name* to the native side, not a sentinel meaning
+        // "use the system default" — passing the literal string 'default'
+        // makes it look for a raw resource file named exactly that, fail to
+        // find one, and log an error. Leaving the key out is what actually
+        // asks for the system default sound.
       });
     }
     setupDone = true;
@@ -146,8 +162,13 @@ export async function scheduleBookingEndingSoonReminder(
  * the event at all).
  */
 export async function notifyNewBookingRequest(listingTitle: string): Promise<void> {
-  const ok = await ensureNotificationSetup();
-  if (!ok) return;
+  // Not `ensureNotificationSetup` — that creates and targets the *renter's*
+  // "Booking reminders" channel. This is the owner's request alert, which
+  // belongs on "Booking requests" (MAX importance) so it behaves and sounds
+  // the same whether it arrives as this local fallback or as the real push,
+  // and so muting one channel in system settings doesn't silently affect
+  // the other.
+  await ensureBookingRequestCategory();
   const Notifications = await loadNotifications();
   if (!Notifications) return;
 
@@ -157,7 +178,7 @@ export async function notifyNewBookingRequest(listingTitle: string): Promise<voi
         title: 'New booking request',
         body: `Someone wants to book ${listingTitle} — respond before their request expires.`,
         sound: true,
-        ...(Platform.OS === 'android' ? { channelId: ANDROID_CHANNEL_ID } : {}),
+        ...(Platform.OS === 'android' ? { channelId: REQUEST_CHANNEL_ID } : {}),
       },
       trigger: null,
     });
@@ -218,7 +239,7 @@ export async function ensureBookingRequestCategory(): Promise<void> {
         name: 'Booking requests',
         importance: Notifications.AndroidImportance.MAX,
         vibrationPattern: [0, 400, 250, 400],
-        sound: 'default',
+        // See the identical comment in `ensureNotificationSetup` above.
       });
     }
 
@@ -257,12 +278,29 @@ export async function getPushToken(): Promise<string | null> {
 
   const projectId =
     Constants.expoConfig?.extra?.eas?.projectId ?? Constants.easConfig?.projectId;
-  if (!projectId) return null;
+  if (!projectId) {
+    console.warn('[ParkNext] No EAS project id found — cannot request a push token.');
+    return null;
+  }
 
   try {
     const { data } = await Notifications.getExpoPushTokenAsync({ projectId });
+    if (!data) {
+      console.warn('[ParkNext] getExpoPushTokenAsync returned no token for project', projectId);
+    }
     return data || null;
-  } catch {
+  } catch (error) {
+    // The one failure this app has actually hit before: FCM credentials
+    // (an uploaded Firebase service account key) are scoped to the EAS
+    // *project*, not the Expo account — switching projects, as this app did
+    // moving accounts, leaves the new project with none configured, and
+    // this call fails every time until `eas credentials` uploads one.
+    console.warn(
+      '[ParkNext] getExpoPushTokenAsync failed for project',
+      projectId,
+      '—',
+      error instanceof Error ? error.message : error
+    );
     return null;
   }
 }
@@ -316,6 +354,12 @@ export async function addBookingRequestActionListener(
     if (initial) {
       const action = toAction(initial);
       if (action) handler(action);
+      // `getLastNotificationResponseAsync` keeps returning this same
+      // response on every future cold start until explicitly cleared — not
+      // just once. Left uncleared, an `open` action would force provider
+      // mode and re-navigate to this same booking on every launch from now
+      // on, not only the one that actually happened right after the tap.
+      Notifications.clearLastNotificationResponse();
     }
   } catch {
     // Nothing to replay.
