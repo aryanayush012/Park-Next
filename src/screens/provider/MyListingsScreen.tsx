@@ -1,11 +1,12 @@
 import React, { useCallback, useState } from 'react';
-import { FlatList, Pressable, StyleSheet, Switch, Text, View } from 'react-native';
+import { FlatList, Pressable, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useFocusEffect } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { ListingCard } from '../../components/ListingCard';
 import { ConfirmDialog } from '../../components/ConfirmDialog';
+import { Toggle } from '../../components/Toggle';
 import { colors, radius, spacing, typography } from '../../theme';
 import { ProviderListingsStackParamList } from '../../navigation/types';
 import { dataSource } from '../../data/dataSource';
@@ -108,11 +109,10 @@ export function MyListingsScreen({ navigation }: Props) {
           <View style={styles.cardWrap}>
             <View style={styles.rowHeader}>
               <View style={styles.rowHeaderLeft}>
-                <Switch
+                <Toggle
                   value={item.isActive}
                   onValueChange={(value) => handleToggleActive(item, value)}
-                  trackColor={{ false: colors.surfaceBorder, true: colors.primaryMuted }}
-                  thumbColor={item.isActive ? colors.primary : colors.textMuted}
+                  accessibilityLabel={t(item.isActive ? 'listings.active' : 'listings.inactive')}
                 />
                 <Text style={styles.rowHeaderLabel}>
                   {t(item.isActive ? 'listings.active' : 'listings.inactive')}
@@ -120,6 +120,10 @@ export function MyListingsScreen({ navigation }: Props) {
               </View>
             </View>
 
+            {/* `dimmed` fades the photo/text only — the delete and edit
+                buttons below stay at full opacity, since those are exactly
+                what someone managing an inactive listing still needs to see
+                clearly. */}
             <ListingCard
               title={item.title}
               photoUrl={item.photoUrl}
@@ -131,6 +135,7 @@ export function MyListingsScreen({ navigation }: Props) {
               ratingCount={item.ratingCount}
               status={item.status}
               amenities={item.amenities.map((key) => AMENITIES[key])}
+              dimmed={!item.isActive}
               // Deleting is only offered once a listing is inactive, so
               // taking it off the market is always the first step and the
               // irreversible action can never be the quicker tap.

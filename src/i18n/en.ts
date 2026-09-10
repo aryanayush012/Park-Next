@@ -29,6 +29,8 @@ export const en = {
 
   // --- profile --------------------------------------------------------
   'profile.title': 'Profile',
+  'profile.completeness': 'Profile strength',
+  'profile.completenessCount': '{{done}}/{{total}} complete',
   'profile.editHeading': 'Edit profile',
   'profile.addYourName': 'Add your name',
   'profile.noRatings': 'No ratings yet',

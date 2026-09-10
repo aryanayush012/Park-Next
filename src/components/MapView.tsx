@@ -1,6 +1,9 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { ActivityIndicator, Pressable, StyleProp, StyleSheet, Text, View, ViewStyle } from 'react-native';
 import { WebView, WebViewMessageEvent } from 'react-native-webview';
+// Not re-exported from the package root (only FileDownload/WebViewMessageEvent/
+// WebViewNavigation are), so this comes from the internal types module.
+import { WebViewRenderProcessGoneEvent } from 'react-native-webview/lib/WebViewTypes';
 import { useTranslation } from '../i18n';
 import { colors, spacing, typography } from '../theme';
 import { GeoPoint } from '../types';
@@ -185,6 +188,27 @@ export function MapView({
     );
   }, [isReady, pickedLocation]);
 
+  const handleRenderProcessGone = (event: WebViewRenderProcessGoneEvent) => {
+    // Android's WebView renders in a separate process from the app; on some
+    // devices — confirmed via `adb logcat` on a Samsung Galaxy S24 FE, not
+    // reproducible on a Pixel 7 — that process dies outright rather than the
+    // page just failing to load.
+    //
+    // Deliberately NOT auto-reloading here (an earlier version of this
+    // handler called `retry()` directly). On the S24 FE the renderer dies
+    // again within seconds of every fresh instance — confirmed by watching
+    // five-plus consecutive reload cycles in the log, each one loading,
+    // drawing tiles for a few seconds, then getting torn down — so
+    // auto-retrying just re-enters the same failure immediately, forever.
+    // That endless reload cycle *was* the reported "flickering": the map
+    // never actually crashed the app, it just never stopped restarting.
+    // Showing the same error/retry UI as a normal load failure breaks the
+    // loop — a person's own tap is what starts the next attempt, so it
+    // cannot repeat faster than someone decides to retry it.
+    console.warn('[ParkNext] WebView render process gone. didCrash =', event.nativeEvent.didCrash);
+    setLoadFailed(true);
+  };
+
   const handleMessage = (event: WebViewMessageEvent) => {
     try {
       const message = JSON.parse(event.nativeEvent.data) as BridgeMessage;
@@ -218,6 +242,7 @@ export function MapView({
         source={{ html }}
         onMessage={handleMessage}
         onError={() => setLoadFailed(true)}
+        onRenderProcessGone={handleRenderProcessGone}
         style={styles.webview}
         originWhitelist={['*']}
         javaScriptEnabled
@@ -226,7 +251,24 @@ export function MapView({
         bounces={false}
         showsHorizontalScrollIndicator={false}
         showsVerticalScrollIndicator={false}
-        androidLayerType="hardware"
+        // `androidLayerType="software"` — not just "unset". Leaving this
+        // unset (Android's own default) still let Chromium enable its own
+        // hardware-overlay compositing path on its own (confirmed via `adb
+        // logcat`: "WebView overlays are enabled!" printed on every load on
+        // a Samsung Galaxy S24 FE regardless of this prop, never on a Pixel
+        // 7), which kept the map's reload-crash-reload cycle going, just
+        // less often. That overlay is a SurfaceControl layer composited by
+        // the OS directly rather than through the normal Android View tree,
+        // which is also the likely reason a button placed *above* the map
+        // in the React tree could still have its taps swallowed — a
+        // hardware overlay's compositor order isn't guaranteed to follow
+        // React Native's view z-order at all. Forcing software rendering
+        // keeps the WebView inside the ordinary View compositing path
+        // instead, where both the crash and the stolen touches stop being
+        // possible by construction, not just less likely. The real cost is
+        // CPU-rendered tiles instead of GPU-composited ones — worth it for
+        // an actually-working map over a marginally smoother broken one.
+        androidLayerType="software"
       />
       {!isReady && !showError ? (
         <View pointerEvents="none" style={styles.loadingOverlay}>

@@ -113,6 +113,11 @@ export function ProfileScreen() {
   };
 
   const hasRatings = Boolean(ratings && ratings.ratingCount > 0);
+  // Every field the read-mode card shows except the photo — a photo-less
+  // profile still reads as complete rather than looking abandoned, per the
+  // "except profile photo" rule this counts against.
+  const trackedFields = [name, about, phone, email];
+  const completedFields = trackedFields.filter(Boolean).length;
   const activeLanguageLabel =
     LANGUAGES.find((option) => option.value === language)?.label ?? language;
 
@@ -120,6 +125,30 @@ export function ProfileScreen() {
     <SafeAreaView style={styles.container} edges={['top', 'bottom']}>
       <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
         <Text style={styles.title}>{t('profile.title')}</Text>
+
+        {/* A muted placeholder in an empty field (e.g. "Add your name") reads
+            at a glance like it could be real data — this is the unambiguous
+            signal instead: a plain fraction of the fields that are actually
+            filled in. */}
+        <View style={styles.progressCard}>
+          <View style={styles.progressHeader}>
+            <Text style={styles.progressLabel}>{t('profile.completeness')}</Text>
+            <Text style={styles.progressCount}>
+              {t('profile.completenessCount', {
+                done: completedFields,
+                total: trackedFields.length,
+              })}
+            </Text>
+          </View>
+          <View style={styles.progressTrack}>
+            <View
+              style={[
+                styles.progressFill,
+                { width: `${(completedFields / trackedFields.length) * 100}%` },
+              ]}
+            />
+          </View>
+        </View>
 
         <View style={[styles.card, styles.profileCard]}>
           {isEditing ? null : (
@@ -196,9 +225,11 @@ export function ProfileScreen() {
                 </View>
 
                 <View style={styles.identityText}>
-                  <Text style={styles.name} numberOfLines={1}>
-                    {name || t('profile.addYourName')}
-                  </Text>
+                  {name ? (
+                    <Text style={styles.name} numberOfLines={1}>
+                      {name}
+                    </Text>
+                  ) : null}
                   <View style={styles.ratingRow}>
                     <Ionicons
                       name={hasRatings ? 'star' : 'star-outline'}
@@ -222,23 +253,16 @@ export function ProfileScreen() {
                 </View>
               </View>
 
-              <Text style={about ? styles.about : styles.aboutEmpty}>
-                {about || t('profile.aboutEmpty')}
-              </Text>
+              {about ? <Text style={styles.about}>{about}</Text> : null}
 
               <View style={styles.divider} />
 
-              <ContactRow
-                icon="mail-outline"
-                value={email ?? ''}
-                fallback={t('profile.noEmail')}
-              />
-              <ContactRow
-                icon="call-outline"
-                value={phone ? formatPhone(phone) : phone}
-                fallback={t('profile.addMobile')}
-                isLast
-              />
+              {email ? (
+                <ContactRow icon="mail-outline" value={email} isLast={!phone} />
+              ) : null}
+              {phone ? (
+                <ContactRow icon="call-outline" value={formatPhone(phone)} isLast />
+              ) : null}
 
             </>
           )}
@@ -357,19 +381,17 @@ export function ProfileScreen() {
 function ContactRow({
   icon,
   value,
-  fallback,
   isLast,
 }: {
   icon: React.ComponentProps<typeof Ionicons>['name'];
   value: string;
-  fallback: string;
   isLast?: boolean;
 }) {
   return (
     <View style={[styles.contactRow, isLast && styles.contactRowLast]}>
       <Ionicons name={icon} size={18} color={colors.textMuted} />
-      <Text style={value ? styles.contactValue : styles.contactValueEmpty} numberOfLines={1}>
-        {value || fallback}
+      <Text style={styles.contactValue} numberOfLines={1}>
+        {value}
       </Text>
     </View>
   );
@@ -391,6 +413,39 @@ const styles = StyleSheet.create({
   },
   profileCard: {
     padding: spacing.lg,
+  },
+  progressCard: {
+    backgroundColor: colors.surface,
+    borderRadius: radius.lg,
+    borderWidth: 1,
+    borderColor: colors.surfaceBorder,
+    padding: spacing.md,
+    marginBottom: spacing.md,
+  },
+  progressHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: spacing.sm,
+  },
+  progressLabel: {
+    ...typography.bodyMedium,
+    color: colors.textPrimary,
+  },
+  progressCount: {
+    ...typography.caption,
+    color: colors.textSecondary,
+  },
+  progressTrack: {
+    height: 6,
+    borderRadius: radius.full,
+    backgroundColor: colors.surfaceElevated,
+    overflow: 'hidden',
+  },
+  progressFill: {
+    height: '100%',
+    borderRadius: radius.full,
+    backgroundColor: colors.primary,
   },
   card: {
     backgroundColor: colors.surface,
@@ -461,11 +516,6 @@ const styles = StyleSheet.create({
     color: colors.textSecondary,
     marginTop: spacing.lg,
   },
-  aboutEmpty: {
-    ...typography.bodyLarge,
-    color: colors.textMuted,
-    marginTop: spacing.lg,
-  },
   divider: {
     height: 1,
     backgroundColor: colors.surfaceBorder,
@@ -485,12 +535,6 @@ const styles = StyleSheet.create({
     color: colors.textPrimary,
     flex: 1,
   },
-  contactValueEmpty: {
-    ...typography.bodyLarge,
-    color: colors.textMuted,
-    flex: 1,
-  },
-
   // --- edit mode -------------------------------------------------------
   editHeader: {
     flexDirection: 'row',

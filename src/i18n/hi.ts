@@ -34,6 +34,8 @@ export const hi: Record<TranslationKey, string> = {
 
   // --- profile --------------------------------------------------------
   'profile.title': 'प्रोफ़ाइल',
+  'profile.completeness': 'प्रोफ़ाइल स्ट्रेंथ',
+  'profile.completenessCount': '{{done}}/{{total}} पूर्ण',
   'profile.editHeading': 'प्रोफ़ाइल बदलें',
   'profile.addYourName': 'अपना नाम जोड़ें',
   'profile.noRatings': 'अभी कोई रेटिंग नहीं',

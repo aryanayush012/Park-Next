@@ -19,16 +19,32 @@ export interface StatusBadgeProps {
    * card, say. Defaults to the full size every other screen uses.
    */
   size?: 'default' | 'compact';
+  /**
+   * `onPhoto` swaps the tinted background for a dark glass chip. The default
+   * background is a ~14%-opacity tint of the status color, which reads fine
+   * against this app's own solid surface color but nearly disappears — tint
+   * and text both — over an arbitrary listing photo behind it. `colors.overlay`
+   * is the same dark scrim already used for other controls floating on a
+   * photo (the delete button on this same card), so status text stays legible
+   * over any photo instead of just the ones dark enough to carry a 14% tint.
+   */
+  variant?: 'default' | 'onPhoto';
 }
 
-export function StatusBadge({ status, size = 'default' }: StatusBadgeProps) {
+export function StatusBadge({ status, size = 'default', variant = 'default' }: StatusBadgeProps) {
   const { t } = useTranslation();
   const config = STATUS_CONFIG[status];
   const isCompact = size === 'compact';
+  const onPhoto = variant === 'onPhoto';
 
   return (
     <View
-      style={[styles.badge, isCompact && styles.badgeCompact, { backgroundColor: config.bg }]}
+      style={[
+        styles.badge,
+        isCompact && styles.badgeCompact,
+        { backgroundColor: onPhoto ? colors.overlay : config.bg },
+        onPhoto && styles.badgeGlass,
+      ]}
     >
       <View
         style={[styles.dot, isCompact && styles.dotCompact, { backgroundColor: config.fg }]}
@@ -52,6 +68,12 @@ const styles = StyleSheet.create({
   badgeCompact: {
     paddingVertical: 1,
     paddingHorizontal: spacing.xxs,
+  },
+  // A hairline light border on the dark scrim is what reads as "glass"
+  // rather than just a plain dark chip.
+  badgeGlass: {
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.18)',
   },
   dot: {
     width: 6,

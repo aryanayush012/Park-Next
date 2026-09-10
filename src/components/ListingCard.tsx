@@ -37,6 +37,15 @@ export interface ListingCardProps {
    * badge on a narrow screen.
    */
   bottomRightAction?: React.ReactNode;
+  /**
+   * Fades the photo, status badge and text — but never `topRightAction` /
+   * `bottomRightAction` — to signal "off the market" without a real blur.
+   * Opacity composites down the whole view tree, so keeping the action
+   * buttons at full strength means they must render as siblings of the
+   * dimmed views rather than inside them; giving a button its own
+   * `opacity: 1` can't undo a parent's.
+   */
+  dimmed?: boolean;
 }
 
 export function ListingCard({
@@ -54,6 +63,7 @@ export function ListingCard({
   onPress,
   topRightAction,
   bottomRightAction,
+  dimmed,
 }: ListingCardProps) {
   const { t } = useTranslation();
 
@@ -63,36 +73,40 @@ export function ListingCard({
       style={({ pressed }) => [styles.card, elevation.card, pressed && styles.cardPressed]}
     >
       <View style={styles.photoWrap}>
-        <Image source={{ uri: photoUrl }} style={styles.photo} />
-        <View style={styles.statusOverlay}>
-          <StatusBadge status={status} />
+        <View style={[styles.mediaFrame, dimmed && styles.dimmed]}>
+          <Image source={{ uri: photoUrl }} style={styles.photo} />
+          <View style={styles.statusOverlay}>
+            <StatusBadge status={status} variant="onPhoto" />
+          </View>
         </View>
         {topRightAction ? (
           <View style={styles.topRightOverlay}>{topRightAction}</View>
         ) : null}
       </View>
       <View style={styles.content}>
-        <Text style={styles.title} numberOfLines={2}>
-          {title}
-        </Text>
-        <View style={styles.metaRow}>
-          <Ionicons name="location-outline" size={12} color={colors.textMuted} />
-          <Text style={styles.metaText} numberOfLines={1}>
-            {t('card.distanceAddress', { km: distanceKm.toFixed(1), address })}
+        <View style={dimmed && styles.dimmed}>
+          <Text style={styles.title} numberOfLines={2}>
+            {title}
           </Text>
-        </View>
-        {note ? <Text style={styles.note}>{note}</Text> : null}
-        <View style={styles.priceRow}>
-          <Text style={styles.price}>
-            {currency}
-            {pricePerHour}
-            <Text style={styles.priceUnit}>{t('card.perHour')}</Text>
-          </Text>
-          <StarRating rating={rating} ratingCount={ratingCount} />
+          <View style={styles.metaRow}>
+            <Ionicons name="location-outline" size={12} color={colors.textMuted} />
+            <Text style={styles.metaText} numberOfLines={1}>
+              {t('card.distanceAddress', { km: distanceKm.toFixed(1), address })}
+            </Text>
+          </View>
+          {note ? <Text style={styles.note}>{note}</Text> : null}
+          <View style={styles.priceRow}>
+            <Text style={styles.price}>
+              {currency}
+              {pricePerHour}
+              <Text style={styles.priceUnit}>{t('card.perHour')}</Text>
+            </Text>
+            <StarRating rating={rating} ratingCount={ratingCount} />
+          </View>
         </View>
         {amenities.length > 0 || bottomRightAction ? (
           <View style={styles.footerRow}>
-            <View style={styles.amenityRow}>
+            <View style={[styles.amenityRow, dimmed && styles.dimmed]}>
               {amenities.slice(0, 2).map((amenity) => (
                 <AmenityBadge
                   key={amenity.key}
@@ -128,6 +142,14 @@ const styles = StyleSheet.create({
   photo: {
     width: '100%',
     height: '100%',
+  },
+  // Fills `photoWrap` (which sets the explicit height) so wrapping it for
+  // the dimmed-opacity treatment doesn't change the photo's size.
+  mediaFrame: {
+    flex: 1,
+  },
+  dimmed: {
+    opacity: 0.5,
   },
   statusOverlay: {
     position: 'absolute',

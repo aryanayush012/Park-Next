@@ -22,6 +22,8 @@ export const colors = {
    * rather than shifting `primary` and rippling through every screen.
    */
   logoAmber: '#FBB112',
+  /** The road-P silhouette's own ink, sampled from the icon artwork — used by the animated splash. */
+  roadInk: '#101115',
 
   // Semantic
   error: '#EF4444',

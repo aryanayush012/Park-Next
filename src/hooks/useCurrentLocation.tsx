@@ -98,6 +98,13 @@ export function useCurrentLocation(): CurrentLocationState {
   useEffect(() => {
     sourceRef.current = source;
   }, [source]);
+  // Guards the AppState listener below against re-entering `resolve()` while
+  // one is already running — see that listener's comment for why this is
+  // load-bearing, not just tidiness.
+  const loadingRef = useRef(loading);
+  useEffect(() => {
+    loadingRef.current = loading;
+  }, [loading]);
 
   useEffect(() => {
     mounted.current = true;
@@ -215,9 +222,24 @@ export function useCurrentLocation(): CurrentLocationState {
   // Only fires while still on the mock point, so it never re-triggers a
   // network/GPS round-trip on every app resume once a real fix already
   // succeeded.
+  //
+  // The `!loadingRef.current` guard is load-bearing, not defensive padding.
+  // `requestForegroundPermissionsAsync()` opens the system permission
+  // dialog as a genuine separate Activity — confirmed via `adb logcat` on a
+  // Samsung Galaxy S23 FE/S24 FE (not reproducible on a Pixel 7) — and on
+  // those devices, that Activity taking and releasing focus fires its own
+  // 'active' AppState transition on the way back, while `source` is still
+  // 'mock' because the very request that opened the dialog hasn't resolved
+  // yet. Without this guard, that self-inflicted 'active' event called
+  // `resolve()` again, which reopened the permission dialog, which fired
+  // 'active' again — a genuine infinite loop entirely inside this hook,
+  // not an OS bug: dozens of `GrantPermissionsActivity` instances a second,
+  // which is what "the screen is flickering and the button won't respond"
+  // actually was. Skipping while a resolution is already in flight breaks
+  // the cycle at its source.
   useEffect(() => {
     const subscription = AppState.addEventListener('change', (nextState) => {
-      if (nextState === 'active' && sourceRef.current === 'mock') {
+      if (nextState === 'active' && sourceRef.current === 'mock' && !loadingRef.current) {
         resolve();
       }
     });

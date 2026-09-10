@@ -55,6 +55,11 @@ export function Slider({
   latest.current = { min, max, step, span, travel, value, onChange };
 
   const dragStart = useRef(0);
+  // Screen-absolute X of the container's left edge, refreshed on every
+  // layout — see the comment in onPanResponderGrant for why this is needed
+  // instead of just reading `locationX` off the touch event.
+  const containerRef = useRef<View>(null);
+  const containerPageX = useRef(0);
 
   const panResponder = useMemo(
     () =>
@@ -69,13 +74,24 @@ export function Slider({
         // Once the drag is ours, the ScrollView cannot take it back.
         onPanResponderTerminationRequest: () => false,
 
-        onPanResponderGrant: (event) => {
+        onPanResponderGrant: (_event, gesture) => {
           const { min: lo, max: hi, step: s, span: sp, travel: tr } = latest.current;
           const snap = (raw: number) =>
             Math.round(Math.min(Math.max(raw, lo), hi) / s) * s;
-          // A press anywhere on the track jumps the thumb there. `locationX`
-          // is relative to this view, so no absolute measurement is needed.
-          const next = snap(lo + ((event.nativeEvent.locationX - THUMB / 2) / tr) * sp);
+          // NOT `event.nativeEvent.locationX` — that's relative to whichever
+          // child view the touch actually landed on, not to this container.
+          // Most of the track is bare container, so it happened to work
+          // there, but a tap on the *thumb* itself (an absolutely-positioned
+          // child) reports locationX relative to the thumb's own 24px box —
+          // i.e. a value near 0 regardless of where the thumb sits. At the
+          // max end that read as "near the start of the track", snapping
+          // straight to min the instant someone touched the thumb to drag
+          // it. `gesture.x0` is the touch's absolute screen X (stable
+          // regardless of which child received it); subtracting the
+          // container's own screen offset gives the same track-relative
+          // coordinate `locationX` was supposed to provide.
+          const touchX = gesture.x0 - containerPageX.current;
+          const next = snap(lo + ((touchX - THUMB / 2) / tr) * sp);
           dragStart.current = next;
           setDragValue(next);
           if (next !== latest.current.value) latest.current.onChange(next);
@@ -98,6 +114,9 @@ export function Slider({
 
   const onLayout = (event: LayoutChangeEvent) => {
     setTrackWidth(event.nativeEvent.layout.width);
+    containerRef.current?.measure((_x, _y, _width, _height, pageX) => {
+      containerPageX.current = pageX;
+    });
   };
 
   const shown = dragValue ?? value;
@@ -105,6 +124,7 @@ export function Slider({
 
   return (
     <View
+      ref={containerRef}
       style={styles.container}
       onLayout={onLayout}
       accessibilityRole="adjustable"
