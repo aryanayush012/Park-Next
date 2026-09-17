@@ -21,11 +21,18 @@
  * moving piece is its own <Animated.View> wrapping its own small <Svg> rather
  * than one big SVG with animated children.
  *
- * The road is revealed as a sequence of ribbon slices, each with its own
- * bounding box so its layer is a small view -- 30-odd full-tile layers stacked
- * on top of each other would be a lot of overdraw for the first thing a user
- * sees. Geometry, including the reveal order, lives in `splashGeometry.ts`
- * (traced from the icon artwork; see that file's header).
+ * The road is revealed as a sequence of ribbon GROUPS (a handful of adjacent
+ * slices sharing one Svg and one fade-in), each with its own bounding box so
+ * its layer is a small view -- see splashGeometry.ts's own header for why this
+ * is grouped rather than one Svg per original slice: on a mid-range Android
+ * device, 51 separate native Svg views animating at once (the original
+ * one-per-slice count) was visibly janky. `styles.tile` also opts into
+ * `renderToHardwareTextureAndroid`, which asks Android to composite this
+ * whole subtree as a single GPU layer instead of blending every child view
+ * into the frame separately -- cheaper once there are more than a couple of
+ * overlapping animated layers, which this still is even after grouping.
+ * Geometry, including the reveal order, lives in `splashGeometry.ts` (traced
+ * from the icon artwork; see that file's header).
  *
  * Honours the OS "reduce motion" setting: it then goes straight to the finished
  * logo, holds, and fades out.
@@ -40,7 +47,7 @@ import {
   StyleSheet,
   View,
 } from 'react-native';
-import Svg, { Circle, Defs, Path, RadialGradient, Stop } from 'react-native-svg';
+import Svg, { Circle, Defs, G, Path, RadialGradient, Stop } from 'react-native-svg';
 
 import { colors } from '../theme/colors';
 import { SPLASH } from './splashGeometry';
@@ -192,7 +199,12 @@ export const AnimatedSplash: React.FC<Props> = ({ onFinish }) => {
           useNativeDriver: true,
         }),
         Animated.delay(700),
-        Animated.timing(veil, { toValue: 0, duration: T.out, useNativeDriver: true }),
+        Animated.timing(veil, {
+          toValue: 0,
+          duration: T.out,
+          easing: Easing.in(Easing.cubic),
+          useNativeDriver: true,
+        }),
       ]);
       still.start(({ finished }) => finished && finish());
       return () => still.stop();
@@ -248,7 +260,12 @@ export const AnimatedSplash: React.FC<Props> = ({ onFinish }) => {
       ]),
       Animated.sequence([
         Animated.delay(TOTAL - T.out),
-        Animated.timing(veil, { toValue: 0, duration: T.out, useNativeDriver: true }),
+        Animated.timing(veil, {
+          toValue: 0,
+          duration: T.out,
+          easing: Easing.in(Easing.cubic),
+          useNativeDriver: true,
+        }),
       ]),
     ]);
 
@@ -259,7 +276,12 @@ export const AnimatedSplash: React.FC<Props> = ({ onFinish }) => {
   /** Tapping anywhere gets you past it -- this matters by the hundredth launch. */
   const skip = useCallback(() => {
     journey.stopAnimation();
-    Animated.timing(veil, { toValue: 0, duration: 160, useNativeDriver: true }).start(finish);
+    Animated.timing(veil, {
+      toValue: 0,
+      duration: 160,
+      easing: Easing.in(Easing.cubic),
+      useNativeDriver: true,
+    }).start(finish);
   }, [journey, veil, finish]);
 
   const anims = useMemo(() => {
@@ -289,8 +311,8 @@ export const AnimatedSplash: React.FC<Props> = ({ onFinish }) => {
         journey.interpolate({ inputRange: [0, 0.09], outputRange: [0, 1], extrapolate: 'clamp' }),
         resolve.interpolate({ inputRange: [0.12, 0.72], outputRange: [1, 0], extrapolate: 'clamp' }),
       ),
-      chunk: SPLASH.chunkTrig.map((trig) => ramp(journey, trig, trig + 0.014)),
-      dash: SPLASH.dashes.map((d) => ramp(paint, Math.max(0, d.t - 0.02), Math.max(0, d.t - 0.02) + 0.032)),
+      chunkGroup: SPLASH.chunkGroups.map((g) => ramp(journey, g.trig, g.trig + g.width)),
+      dashGroup: SPLASH.dashGroups.map((g) => ramp(paint, g.trig, g.trig + g.width)),
       counterOpacity: ramp(fill, 0, 0.18),
       counterScale: fill.interpolate({ inputRange: [0, 1], outputRange: [0.5, 1] }),
       houseOpacity: ramp(resolve, 0, 0.5),
@@ -304,22 +326,30 @@ export const AnimatedSplash: React.FC<Props> = ({ onFinish }) => {
       glowScale: resolve.interpolate({ inputRange: [0, 1], outputRange: [0.7, 1.4] }),
       wordOpacity: word,
       wordShift: word.interpolate({ inputRange: [0, 1], outputRange: [10, 0] }),
+      wordScale: word.interpolate({ inputRange: [0, 1], outputRange: [0.94, 1] }),
     };
   }, [journey, paint, fill, resolve, word]);
 
   return (
     <Pressable style={StyleSheet.absoluteFill} onPress={skip} accessibilityRole="button" accessibilityLabel="Skip intro">
       <Animated.View style={[StyleSheet.absoluteFill, styles.field, { opacity: veil }]}>
-        <View style={styles.tile} pointerEvents="none">
-          {/* the road, laid slice by slice just under the car's nose */}
-          {SPLASH.chunks.map((c, i) => (
-            <Animated.View key={`road-${i}`} style={[boxStyle(c), { opacity: anims.chunk[i] }]}>
-              {/* 100%/"none" rather than the exact `c.w * U` px size: boxStyle
-                  can round this chunk's box a hair larger than that to close
+        <View style={styles.tile} pointerEvents="none" renderToHardwareTextureAndroid collapsable={false}>
+          {/* the road, laid group by group just under the car's nose -- each
+              group bundles a handful of adjacent slices (splashGeometry.ts),
+              positioned within the shared Svg via their own <G transform>
+              rather than each getting its own top-level Svg. */}
+          {SPLASH.chunkGroups.map((g, i) => (
+            <Animated.View key={`road-${i}`} style={[boxStyle(g), { opacity: anims.chunkGroup[i] }]}>
+              {/* 100%/"none" rather than the exact `g.w * U` px size: boxStyle
+                  can round this group's box a hair larger than that to close
                   the seam with its neighbour, and the artwork must fill
                   whatever size its box actually ends up, not stop short of it. */}
-              <Svg width="100%" height="100%" viewBox={`0 0 ${c.w} ${c.h}`} preserveAspectRatio="none">
-                <Path d={c.d} fill={colors.roadInk} />
+              <Svg width="100%" height="100%" viewBox={`0 0 ${g.w} ${g.h}`} preserveAspectRatio="none">
+                {g.pieces.map((p, j) => (
+                  <G key={j} translateX={p.dx} translateY={p.dy}>
+                    <Path d={p.d} fill={colors.roadInk} />
+                  </G>
+                ))}
               </Svg>
             </Animated.View>
           ))}
@@ -339,11 +369,15 @@ export const AnimatedSplash: React.FC<Props> = ({ onFinish }) => {
             </Svg>
           </Animated.View>
 
-          {/* lane markings */}
-          {SPLASH.dashes.map((d, i) => (
-            <Animated.View key={`dash-${i}`} style={[boxStyle(d), { opacity: anims.dash[i] }]}>
-              <Svg width={d.w * U} height={d.h * U} viewBox={`0 0 ${d.w} ${d.h}`}>
-                <Path d={d.d} fill={colors.logoAmber} />
+          {/* lane markings, grouped the same way as the road above */}
+          {SPLASH.dashGroups.map((g, i) => (
+            <Animated.View key={`dash-${i}`} style={[boxStyle(g), { opacity: anims.dashGroup[i] }]}>
+              <Svg width="100%" height="100%" viewBox={`0 0 ${g.w} ${g.h}`} preserveAspectRatio="none">
+                {g.pieces.map((p, j) => (
+                  <G key={j} translateX={p.dx} translateY={p.dy}>
+                    <Path d={p.d} fill={colors.logoAmber} />
+                  </G>
+                ))}
               </Svg>
             </Animated.View>
           ))}
@@ -444,7 +478,10 @@ export const AnimatedSplash: React.FC<Props> = ({ onFinish }) => {
           resizeMode="contain"
           style={[
             styles.wordmark,
-            { opacity: anims.wordOpacity, transform: [{ translateY: anims.wordShift }] },
+            {
+              opacity: anims.wordOpacity,
+              transform: [{ translateY: anims.wordShift }, { scale: anims.wordScale }],
+            },
           ]}
         />
       </Animated.View>

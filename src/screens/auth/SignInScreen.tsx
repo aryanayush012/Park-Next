@@ -11,9 +11,9 @@ import {
   View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { Ionicons } from '@expo/vector-icons';
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { Button } from '../../components/Button';
+import { GoogleIcon } from '../../components/GoogleIcon';
 import { TextField } from '../../components/TextField';
 import { useTranslation } from '../../i18n';
 import { colors, radius, spacing, typography } from '../../theme';
@@ -134,7 +134,7 @@ export function SignInScreen({ navigation }: Props) {
               <ActivityIndicator color={colors.textPrimary} />
             ) : (
               <>
-                <Ionicons name="logo-google" size={20} color={colors.textPrimary} />
+                <GoogleIcon size={20} />
                 <Text style={styles.googleButtonText}>{t('auth.continueWithGoogle')}</Text>
               </>
             )}

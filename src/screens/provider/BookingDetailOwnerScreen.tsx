@@ -21,12 +21,19 @@ import {
   formatTimeFromISO,
 } from '../../utils/format';
 import { formatResponseDeadline } from '../../utils/bookingRequest';
+import { autoCheckoutIfOverLimit, isOverOvertimeCap } from '../../utils/overtimeAutoCheckout';
+import { OVERTIME_RATE_MULTIPLIER } from '../../utils/overtimeBilling';
+import { expireIfNoShow } from '../../utils/noShow';
 import { Booking, BookingStatus, Listing, RenterProfile, Review } from '../../types';
 
 /** Contact info (phone) is only meaningful once a request actually turned
  * into a real booking — never for one still pending, and no longer relevant
  * once it's declined/expired/cancelled without ever becoming one. */
 const CONTACT_REVEALED_STATUSES: BookingStatus[] = ['booked', 'in_progress', 'completed'];
+// Same cadence as the renter's own check (ActiveBookingScreen) — this one
+// is just the backstop for when the renter's app isn't open to drive it.
+const OVERTIME_CAP_CHECK_MS = 60 * 1000;
+const NO_SHOW_CHECK_MS = 30 * 1000;
 
 type Props = NativeStackScreenProps<ProviderBookingsStackParamList, 'BookingDetailOwner'>;
 
@@ -51,13 +58,33 @@ export function BookingDetailOwnerScreen({ navigation, route }: Props) {
   useEffect(() => {
     dataSource.getBookingById(bookingId).then(async (result) => {
       if (!result) return;
-      setBooking(result);
-      const relatedListing = await dataSource.getListingById(result.listingId);
+      // Lazily flips a missed booking to `no_show` the moment this screen
+      // (re)loads it past the booking's own end time with no check-in —
+      // same utils/noShow.ts transition the renter's own Active Booking
+      // screen already drives; this is so the provider's own view doesn't
+      // depend entirely on the renter's app being the one to notice it.
+      const settled = await expireIfNoShow(result);
+      setBooking(settled);
+      const relatedListing = await dataSource.getListingById(settled.listingId);
       if (relatedListing) setListing(relatedListing);
-      const renterProfile = await dataSource.getPublicProfile(result.renterId);
+      const renterProfile = await dataSource.getPublicProfile(settled.renterId);
       setRenter(renterProfile ?? null);
     });
   }, [bookingId]);
+
+  // Waiting for the booking's own window to pass has no external trigger to
+  // catch via realtime — poll while it's still `booked` so a no-show is
+  // noticed here even if the renter never reopens their own app to do it.
+  useEffect(() => {
+    if (booking?.status !== 'booked') return;
+    const poll = setInterval(async () => {
+      const latest = await dataSource.getBookingById(bookingId);
+      if (!latest) return;
+      const settled = await expireIfNoShow(latest);
+      if (settled.status !== 'booked') setBooking(settled);
+    }, NO_SHOW_CHECK_MS);
+    return () => clearInterval(poll);
+  }, [booking?.status, bookingId]);
 
   // Surfaces "Rate This Renter" the moment this screen itself notices the
   // booking has completed — covers both a fresh mount on an already-completed
@@ -93,6 +120,29 @@ export function BookingDetailOwnerScreen({ navigation, route }: Props) {
     });
   }, [bookingId]);
   useRealtimeTable('bookings', refetchBooking, `id=eq.${bookingId}`);
+
+  // Backstop for the same overtime-cap auto-checkout the renter's own Active
+  // Booking screen already drives (`utils/overtimeAutoCheckout.ts`) — this
+  // is the "whichever side notices first" half of that: if the renter's app
+  // isn't open/running past the cap, the owner viewing this same booking
+  // can still square it off instead of it sitting `in_progress` forever.
+  // `checkOut` itself is idempotent, so this running alongside the renter's
+  // own check is harmless either way.
+  useEffect(() => {
+    if (!booking || booking.status !== 'in_progress') return;
+    let cancelled = false;
+    const check = async () => {
+      if (cancelled || !isOverOvertimeCap(booking)) return;
+      const updated = await autoCheckoutIfOverLimit(booking).catch(() => null);
+      if (updated && !cancelled) setBooking(updated);
+    };
+    check();
+    const interval = setInterval(check, OVERTIME_CAP_CHECK_MS);
+    return () => {
+      cancelled = true;
+      clearInterval(interval);
+    };
+  }, [booking?.status, booking?.id, booking?.endTime]);
 
   const handleSubmitReview = async () => {
     if (!booking || ratingInput === 0) return;
@@ -224,6 +274,14 @@ export function BookingDetailOwnerScreen({ navigation, route }: Props) {
                 : '—'
             }
           />
+          {booking.overtimeMinutes ? (
+            <DetailRow
+              label={t('active.overtimeStayed', { minutes: booking.overtimeMinutes })}
+              value={`+${listing.currency}${Math.round(
+                (booking.overtimeMinutes / 60) * listing.pricePerHour * OVERTIME_RATE_MULTIPLIER
+              )}`}
+            />
+          ) : null}
           <DetailRow label={t('ownerDetail.amount')} value={`${listing.currency}${booking.totalPrice}`} highlight />
           {booking.status === 'pending' ? (
             <DetailRow

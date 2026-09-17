@@ -17,6 +17,7 @@ import {
   LISTING_HAS_ACTIVE_BOOKINGS,
 } from '../types';
 import type { DataSource } from './dataSource';
+import { computeOvertimeBilling } from '../utils/overtimeBilling';
 import { computeResponseDeadline } from '../utils/responseDeadline';
 import { uploadListingPhotos } from '../utils/photoUpload';
 
@@ -39,12 +40,15 @@ import { uploadListingPhotos } from '../utils/photoUpload';
  */
 
 const LISTING_COLUMNS =
-  'id, owner_id, title, description, address, vehicle_types, amenities, pricing_model, price_per_hour, available_days, available_from, available_until, photos, is_active, ownership_confirmed, created_at, latitude, longitude';
+  'id, owner_id, title, description, address, vehicle_types, amenities, pricing_model, price_per_hour, available_days, available_from, available_until, photos, is_active, ownership_confirmed, created_at, latitude, longitude, occupied_until';
 
 const BOOKING_COLUMNS =
-  'id, listing_id, renter_id, booking_type, status, start_at, end_at, recurring_rule, checked_in_at, checked_out_at, amount_owed, verification_code, response_deadline, created_at, listings!inner(price_per_hour, pricing_model, owner_id)';
+  'id, listing_id, renter_id, booking_type, status, start_at, end_at, grace_until, recurring_rule, checked_in_at, checked_out_at, amount_owed, overtime_minutes, verification_code, response_deadline, created_at, listings!inner(price_per_hour, pricing_model, owner_id)';
 
 const REVIEW_COLUMNS = 'id, booking_id, reviewer_id, reviewee_id, rating, comment, created_at';
+
+/** See `DataSource.renewOverdueBooking`'s own doc comment. */
+const RENEWAL_BUFFER_MINUTES = 15;
 
 interface ListingRow {
   id: string;
@@ -66,6 +70,7 @@ interface ListingRow {
   latitude: number;
   longitude: number;
   distance_meters?: number;
+  occupied_until: string | null;
 }
 
 interface BookingRow {
@@ -76,10 +81,12 @@ interface BookingRow {
   status: string;
   start_at: string;
   end_at: string;
+  grace_until: string | null;
   recurring_rule: RecurringSchedule | null;
   checked_in_at: string | null;
   checked_out_at: string | null;
   amount_owed: number | null;
+  overtime_minutes: number;
   verification_code: string;
   response_deadline: string;
   created_at: string;
@@ -129,9 +136,12 @@ function rowToListing(row: ListingRow): Listing {
     ratingCount: 0,
     amenities: (row.amenities ?? []) as AmenityKey[],
     vehicleTypes: (row.vehicle_types ?? []) as VehicleType[],
-    // Live status (booked/in_progress from an active booking) isn't
-    // computed here — that needs a join against `bookings`, left for a
-    // later phase. New/idle listings are always `available`.
+    // A full live status (booked/in_progress from an active booking) still
+    // isn't computed here — that needs a join against `bookings` beyond just
+    // "is something covering this instant", left for a later phase.
+    // New/idle listings are always `available`; `occupiedUntil` below is the
+    // narrower "would an instant book conflict right now" check that is
+    // computed, via the `occupied_until` column (0020).
     status: 'available',
     address: row.address,
     latitude: row.latitude,
@@ -142,6 +152,7 @@ function rowToListing(row: ListingRow): Listing {
     // Postgres `time` comes back as "HH:MM:SS" — trim to the app's "HH:mm".
     availableFrom: row.available_from?.slice(0, 5),
     availableUntil: row.available_until?.slice(0, 5),
+    occupiedUntil: row.occupied_until,
   };
 }
 
@@ -186,6 +197,8 @@ function rowToBooking(row: BookingRow): Booking {
     checkOutAt: row.checked_out_at ?? undefined,
     verificationCode: row.verification_code,
     responseDeadline: row.response_deadline,
+    graceUntil: row.grace_until ?? undefined,
+    overtimeMinutes: row.overtime_minutes,
   };
 }
 
@@ -417,6 +430,34 @@ export class SupabaseDataSource implements DataSource {
     if (fetchError) throw fetchError;
 
     const existingRow = existing as unknown as BookingRow;
+
+    if (existingRow.status !== 'booked') {
+      throw new Error(
+        existingRow.status === 'no_show'
+          ? "This booking already passed its window without a check-in and was marked a no-show — the renter will need to book again."
+          : 'This request is no longer active.'
+      );
+    }
+
+    // Discovered right here, not via `expireIfNoShow` on some other screen
+    // first: the booking's own window has already passed with nobody
+    // checked in. Refuse the check-in AND close it out now — entering a
+    // still-valid code shouldn't be able to silently revive a booking that
+    // should already have been a no-show just because this happened to be
+    // the first thing to touch it since the deadline passed.
+    if (Date.now() > new Date(existingRow.end_at).getTime()) {
+      // Best-effort — the throw below is what actually matters to the
+      // caller here, this is just closing the row out while we're at it.
+      await supabase
+        .from('bookings')
+        .update({ status: 'no_show' })
+        .eq('id', bookingId)
+        .eq('status', 'booked');
+      throw new Error(
+        "This booking's window has passed without a check-in — it's been marked as a no-show."
+      );
+    }
+
     if (existingRow.verification_code !== code.trim()) {
       throw new Error("That code doesn't match — ask the renter to double-check it.");
     }
@@ -425,10 +466,16 @@ export class SupabaseDataSource implements DataSource {
       .from('bookings')
       .update({ status: 'in_progress', checked_in_at: new Date().toISOString() })
       .eq('id', bookingId)
+      .eq('status', 'booked')
       .select(BOOKING_COLUMNS)
-      .single();
+      .maybeSingle();
     if (error) throw error;
-    return rowToBooking(data as unknown as BookingRow);
+    if (data) return rowToBooking(data as unknown as BookingRow);
+    // Left `booked` between the checks above and this update (another
+    // request raced it — e.g. the no-show path just above, triggered from
+    // elsewhere at nearly the same moment) — report the real state rather
+    // than a misleading "it worked".
+    throw new Error('This request is no longer active.');
   }
 
   async extendBooking(bookingId: string, extraMinutes: number): Promise<Booking> {
@@ -453,7 +500,18 @@ export class SupabaseDataSource implements DataSource {
       .eq('id', bookingId)
       .select(BOOKING_COLUMNS)
       .single();
-    if (error) throw error;
+    if (error) {
+      // 23P01 = exclusion_violation — the `bookings_no_overlap` constraint
+      // (0004/0011) rejected this because someone else already holds the
+      // slot right after the current end time. Anything else is a genuine
+      // unexpected failure and should surface as-is.
+      if (error.code === '23P01') {
+        throw new Error(
+          "This spot is already booked by someone else right after your slot — you can't extend."
+        );
+      }
+      throw error;
+    }
     return rowToBooking(data as unknown as BookingRow);
   }
 
@@ -466,13 +524,32 @@ export class SupabaseDataSource implements DataSource {
     if (fetchError) throw fetchError;
 
     const existingRow = existing as unknown as BookingRow;
-    const checkedOutAt = new Date();
-    let amountOwed = existingRow.amount_owed;
+    // Idempotency guard — now load-bearing, not just tidy: the overtime cap
+    // auto-checkout can fire from more than one poll/screen around the same
+    // moment, and re-running the billing below on an already-`completed`
+    // booking would bill it a second time (its own `end_at` is by then the
+    // first checkout's timestamp, not the original schedule).
+    if (existingRow.status !== 'in_progress') return rowToBooking(existingRow);
 
-    if (existingRow.listings?.pricing_model === 'metered' && existingRow.checked_in_at) {
-      const elapsedHours =
-        (checkedOutAt.getTime() - new Date(existingRow.checked_in_at).getTime()) / 3600000;
-      amountOwed = Math.round((existingRow.listings.price_per_hour ?? 0) * Math.max(0, elapsedHours));
+    const checkedOutAt = new Date();
+    let amountOwed = existingRow.amount_owed ?? 0;
+    let overtimeMinutes = 0;
+
+    // `existingRow.end_at` here is still the true scheduled/priced end —
+    // `renewOverdueBooking` only ever touches `grace_until`, never this —
+    // so it's exactly what overtime needs to be billed from, however late
+    // this checkout actually is.
+    if (existingRow.checked_in_at) {
+      const billing = computeOvertimeBilling({
+        pricingModel: existingRow.listings?.pricing_model ?? 'flat',
+        pricePerHour: existingRow.listings?.price_per_hour ?? 0,
+        checkInAt: existingRow.checked_in_at,
+        scheduledEndTime: existingRow.end_at,
+        flatTotal: existingRow.amount_owed ?? 0,
+        asOf: checkedOutAt.getTime(),
+      });
+      amountOwed = billing.total;
+      overtimeMinutes = billing.overtimeMinutes;
     }
 
     const { data, error } = await supabase
@@ -486,15 +563,50 @@ export class SupabaseDataSource implements DataSource {
         // what frees the remainder of an early-finished booking for the
         // `bookings_no_overlap` exclusion constraint to allow someone else
         // to book, instead of it staying "occupied" for the rest of the
-        // originally scheduled window.
+        // originally scheduled window. Safe to do only now, after
+        // `computeOvertimeBilling` above has already read the pre-checkout
+        // scheduled end it needed.
         end_at: checkedOutAt.toISOString(),
+        // No longer meaningful once completed — `end_at` above already
+        // reflects the real, final boundary directly.
+        grace_until: null,
         amount_owed: amountOwed,
+        // Persisted separately since `end_at` above just overwrote the
+        // scheduled boundary this was measured against — see migration
+        // 0024 for why the total alone isn't enough to explain itself later.
+        overtime_minutes: overtimeMinutes,
       })
       .eq('id', bookingId)
       .select(BOOKING_COLUMNS)
       .single();
     if (error) throw error;
     return rowToBooking(data as unknown as BookingRow);
+  }
+
+  async renewOverdueBooking(bookingId: string): Promise<Booking> {
+    const bufferEnd = new Date(Date.now() + RENEWAL_BUFFER_MINUTES * 60000).toISOString();
+    // Writes `grace_until`, never `end_at` — `end_at` stays the true
+    // scheduled/priced end so `checkOut` can still bill overtime correctly
+    // afterward (see migration 0023 and utils/overtimeBilling.ts). The `.or`
+    // below is the null-safe form of "already renewed far enough out, skip
+    // it" — a plain `.lt('grace_until', bufferEnd)` would never match while
+    // `grace_until` is still its initial null, since SQL NULL comparisons
+    // are never true.
+    const { data, error } = await supabase
+      .from('bookings')
+      .update({ grace_until: bufferEnd })
+      .eq('id', bookingId)
+      .eq('status', 'in_progress')
+      .or(`grace_until.is.null,grace_until.lt.${bufferEnd}`)
+      .select(BOOKING_COLUMNS)
+      .maybeSingle();
+    if (error) throw error;
+    if (data) return rowToBooking(data as unknown as BookingRow);
+    // Not `in_progress`, or `grace_until` was already renewed recently
+    // enough — either way, nothing to change; return the current row as-is.
+    const current = await this.getBookingById(bookingId);
+    if (!current) throw new Error('Booking not found');
+    return current;
   }
 
   async getPublicProfile(userId: string): Promise<RenterProfile | undefined> {
@@ -581,6 +693,24 @@ export class SupabaseDataSource implements DataSource {
     // Already left `pending` by the time this ran (another client beat it
     // to the transition, or it wasn't actually overdue) — return the
     // current row unchanged rather than erroring.
+    const current = await this.getBookingById(bookingId);
+    if (!current) throw new Error('Booking not found');
+    return current;
+  }
+
+  async expireNoShowBooking(bookingId: string): Promise<Booking> {
+    const { data, error } = await supabase
+      .from('bookings')
+      .update({ status: 'no_show' })
+      .eq('id', bookingId)
+      .eq('status', 'booked')
+      .select(BOOKING_COLUMNS)
+      .maybeSingle();
+    if (error) throw error;
+    if (data) return rowToBooking(data as unknown as BookingRow);
+    // Already left `booked` by the time this ran (checked in just in time,
+    // or another client already made this same transition) — same
+    // best-effort shape as `expireBookingRequest` above.
     const current = await this.getBookingById(bookingId);
     if (!current) throw new Error('Booking not found');
     return current;

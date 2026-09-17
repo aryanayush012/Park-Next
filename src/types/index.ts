@@ -69,6 +69,15 @@ export interface Listing {
   availableFrom?: string;
   /** "HH:mm" 24-hour local time. */
   availableUntil?: string;
+  /**
+   * ISO timestamp of when the booking currently covering "right now" ends,
+   * or null/undefined if nothing does. Distinct from `status`/`isActive` —
+   * this is about a live conflicting reservation blocking an *instant* book
+   * this exact moment, not the listing's own on/off state. Only meaningful
+   * for "search now"; a future scheduled window needs its own overlap check,
+   * not this.
+   */
+  occupiedUntil?: string | null;
 }
 
 export type BookingType = 'instant' | 'advance' | 'recurring';
@@ -88,7 +97,12 @@ export type BookingStatus =
   /** Owner never responded within their response window — see
    * `utils/bookingRequest.ts`. Distinct from `declined` (an active owner
    * decision) purely so the renter can be told the actual reason. */
-  | 'expired';
+  | 'expired'
+  /** Accepted (`booked`), but the renter never checked in before the
+   * booking's own end time — see `utils/noShow.ts`. Not in
+   * `BLOCKING_BOOKING_STATUSES` below: by definition its time window has
+   * already passed, so it never actually holds a listing open. */
+  | 'no_show';
 
 /**
  * Booking states that still involve a real renter, so a listing carrying one
@@ -148,6 +162,25 @@ export interface Booking {
    * `DataSource.verifyArrivalCode`).
    */
   verificationCode: string;
+  /**
+   * How far `DataSource.renewOverdueBooking` has pushed the "still holds
+   * this slot" boundary while checked in past `endTime` — protects against
+   * a second booking, never priced. `endTime` itself stays the true
+   * scheduled/priced end throughout (see `utils/overtimeBilling.ts`), which
+   * is what makes it possible to bill overtime correctly at checkout even
+   * after an overstay. Not used by any screen directly today.
+   */
+  graceUntil?: string;
+  /**
+   * Minutes checked out past the scheduled end, set once at `checkOut` —
+   * 0 for a booking that finished on time or early. The cost of those
+   * minutes (billed at `OVERTIME_RATE_MULTIPLIER`, see
+   * `utils/overtimeBilling.ts`) is already folded into `totalPrice`; this
+   * is what lets a screen explain that total afterward, since `endTime` no
+   * longer holds the original scheduled boundary by checkout time (see
+   * migration 0024).
+   */
+  overtimeMinutes?: number;
 }
 
 export interface CreateBookingInput {

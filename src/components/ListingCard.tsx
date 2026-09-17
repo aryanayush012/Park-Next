@@ -46,6 +46,22 @@ export interface ListingCardProps {
    * `opacity: 1` can't undo a parent's.
    */
   dimmed?: boolean;
+  /**
+   * An active booking covers this exact instant — an instant book would be
+   * rejected server-side (the `bookings_no_overlap` exclusion constraint).
+   * Dims the card the same way `dimmed` does and swaps the status badge to
+   * "Occupied" regardless of `status`. Disables the card's own `onPress`
+   * too — a dimmed area that still responds to a tap is confusing regardless
+   * of what it happens to do — so the only remaining live action is
+   * `onScheduleInstead` below.
+   */
+  occupied?: boolean;
+  /**
+   * The one thing that's still clickable on an `occupied` card: a full-
+   * opacity row (rendered from `note`) offering to schedule ahead instead.
+   * Ignored unless `occupied` is set.
+   */
+  onScheduleInstead?: () => void;
 }
 
 export function ListingCard({
@@ -64,19 +80,27 @@ export function ListingCard({
   topRightAction,
   bottomRightAction,
   dimmed,
+  occupied,
+  onScheduleInstead,
 }: ListingCardProps) {
   const { t } = useTranslation();
+  const isDimmed = dimmed || occupied;
 
   return (
     <Pressable
       onPress={onPress}
-      style={({ pressed }) => [styles.card, elevation.card, pressed && styles.cardPressed]}
+      disabled={occupied}
+      style={({ pressed }) => [
+        styles.card,
+        elevation.card,
+        pressed && !occupied && styles.cardPressed,
+      ]}
     >
       <View style={styles.photoWrap}>
-        <View style={[styles.mediaFrame, dimmed && styles.dimmed]}>
+        <View style={[styles.mediaFrame, isDimmed && styles.dimmed]}>
           <Image source={{ uri: photoUrl }} style={styles.photo} />
           <View style={styles.statusOverlay}>
-            <StatusBadge status={status} variant="onPhoto" />
+            <StatusBadge status={occupied ? 'occupied' : status} variant="onPhoto" />
           </View>
         </View>
         {topRightAction ? (
@@ -84,7 +108,7 @@ export function ListingCard({
         ) : null}
       </View>
       <View style={styles.content}>
-        <View style={dimmed && styles.dimmed}>
+        <View style={isDimmed && styles.dimmed}>
           <Text style={styles.title} numberOfLines={2}>
             {title}
           </Text>
@@ -94,7 +118,7 @@ export function ListingCard({
               {t('card.distanceAddress', { km: distanceKm.toFixed(1), address })}
             </Text>
           </View>
-          {note ? <Text style={styles.note}>{note}</Text> : null}
+          {note && !occupied ? <Text style={styles.note}>{note}</Text> : null}
           <View style={styles.priceRow}>
             <Text style={styles.price}>
               {currency}
@@ -104,9 +128,24 @@ export function ListingCard({
             <StarRating rating={rating} ratingCount={ratingCount} />
           </View>
         </View>
+        {occupied && note ? (
+          <Pressable
+            onPress={onScheduleInstead}
+            hitSlop={8}
+            style={({ pressed }) => [
+              styles.scheduleRow,
+              pressed && styles.scheduleRowPressed,
+            ]}
+          >
+            <Text style={styles.scheduleText} numberOfLines={2}>
+              {note}
+            </Text>
+            <Ionicons name="chevron-forward" size={14} color={colors.primary} />
+          </Pressable>
+        ) : null}
         {amenities.length > 0 || bottomRightAction ? (
           <View style={styles.footerRow}>
-            <View style={[styles.amenityRow, dimmed && styles.dimmed]}>
+            <View style={[styles.amenityRow, isDimmed && styles.dimmed]}>
               {amenities.slice(0, 2).map((amenity) => (
                 <AmenityBadge
                   key={amenity.key}
@@ -184,6 +223,24 @@ const styles = StyleSheet.create({
     ...typography.caption,
     color: colors.primary,
     marginBottom: spacing.xs,
+  },
+  // Full opacity and its own Pressable, deliberately outside the dimmed
+  // wrapper above — the one thing on an `occupied` card that still works,
+  // so it needs to look like it does (a dimmed row that secretly still
+  // responded to a tap was the whole problem this replaced).
+  scheduleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.xxs,
+    marginBottom: spacing.xs,
+  },
+  scheduleRowPressed: {
+    opacity: 0.6,
+  },
+  scheduleText: {
+    ...typography.caption,
+    color: colors.primary,
+    flex: 1,
   },
   priceRow: {
     flexDirection: 'row',

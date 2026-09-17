@@ -1,0 +1,12 @@
+-- ParkNext — 0021: add 'no_show' to booking_status
+--
+-- An accepted (`booked`) request the renter never checked into before the
+-- booking's own end time — distinct from `expired` (a `pending` request the
+-- OWNER never responded to) so the renter can be told the real, different
+-- reason: "you didn't check in in time" vs. "the host didn't respond".
+--
+-- Run this file BY ITSELF, before 0022 — Postgres doesn't allow a newly
+-- added enum value to be referenced (e.g. in a constraint's WHERE clause)
+-- within the same transaction that added it. Same rule 0010 already ran
+-- into for 'expired'; see that file's own comment.
+alter type public.booking_status add value 'no_show';

@@ -137,9 +137,8 @@ export function BookingConfirmationScreen({ navigation, route }: Props) {
           <ActivityIndicator color={colors.secondary} size="large" />
           <Text style={styles.pendingTitle}>{t('confirm.pendingTitle')}</Text>
           <Text style={styles.pendingSubtitle}>
-            Your request has been sent to the host. They've been notified and have{' '}
-            {formatResponseDeadline(booking.responseDeadline)} to respond — we'll take you
-            straight to your booking the moment they accept.
+            Your request has been sent to the host. Host will respond{' '}
+            {formatResponseDeadline(booking.responseDeadline)}
           </Text>
 
           <View style={styles.summaryCard}>
@@ -431,14 +430,19 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-between',
     paddingVertical: spacing.xxs,
+    gap: spacing.sm,
   },
   summaryLabel: {
     ...typography.body,
     color: colors.textSecondary,
+    flexShrink: 0,
   },
   summaryValue: {
     ...typography.bodyMedium,
     color: colors.textPrimary,
+    flex: 1,
+    flexShrink: 1,
+    textAlign: 'right',
   },
   summaryValueHighlight: {
     ...typography.h3,

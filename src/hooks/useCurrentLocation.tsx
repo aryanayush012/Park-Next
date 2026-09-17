@@ -3,6 +3,7 @@ import { AppState, Linking, Platform } from 'react-native';
 import * as Location from 'expo-location';
 import { GeoPoint } from '../types';
 import { MOCK_CURRENT_LOCATION } from '../data/mockData';
+import { useAppReady } from '../navigation/AppReadyContext';
 
 export type LocationSource = 'gps' | 'mock';
 
@@ -211,9 +212,20 @@ export function useCurrentLocation(): CurrentLocationState {
     }
   }, []);
 
+  // Held off until the animated splash has finished — see AppReadyContext's
+  // own comment. Every screen mounts (and its effects fire) underneath the
+  // splash overlay immediately, so without this gate the system location
+  // permission dialog popped up while the splash animation was still
+  // playing on top of it. `appReady` flips false -> true exactly once per
+  // app session, at which point this effect re-runs and requests it for
+  // real — for a screen that mounts later (well after the splash is gone),
+  // `appReady` is already `true` on its very first render, so this fires
+  // immediately as before with no added delay.
+  const appReady = useAppReady();
   useEffect(() => {
+    if (!appReady) return;
     resolve();
-  }, [resolve]);
+  }, [appReady, resolve]);
 
   // Re-check automatically when the app comes back to the foreground while
   // still on the mock fallback — covers the exact "went to Settings, turned

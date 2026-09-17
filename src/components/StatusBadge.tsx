@@ -4,15 +4,23 @@ import { colors, radius, spacing, typography } from '../theme';
 import { ListingStatus } from '../types';
 import { TranslationKey, useTranslation } from '../i18n';
 
-const STATUS_CONFIG: Record<ListingStatus, { labelKey: TranslationKey; fg: string; bg: string }> = {
+/**
+ * `occupied` isn't a real `ListingStatus` — it's ListingCard's own transient
+ * "an active booking covers this exact instant" signal (see `occupiedUntil`
+ * on `Listing`), shown in place of the listing's real status only while
+ * that's true. Reuses the `booked` status's colours, since the meaning —
+ * something is currently holding this spot — is the same one.
+ */
+const STATUS_CONFIG: Record<ListingStatus | 'occupied', { labelKey: TranslationKey; fg: string; bg: string }> = {
   available: { labelKey: 'status.available', fg: colors.statusAvailable, bg: colors.statusAvailableBg },
   booked: { labelKey: 'status.booked', fg: colors.statusBooked, bg: colors.statusBookedBg },
   in_progress: { labelKey: 'status.in_progress', fg: colors.statusInProgress, bg: colors.statusInProgressBg },
   completed: { labelKey: 'status.completed', fg: colors.statusCompleted, bg: colors.statusCompletedBg },
+  occupied: { labelKey: 'status.occupied', fg: colors.statusBooked, bg: colors.statusBookedBg },
 };
 
 export interface StatusBadgeProps {
-  status: ListingStatus;
+  status: ListingStatus | 'occupied';
   /**
    * `compact` trims the padding and dot for places where the badge is a
    * marginal note rather than the headline — the top corner of a booking

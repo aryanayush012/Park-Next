@@ -14,6 +14,7 @@ import { CURRENT_USER_ID, MOCK_BOOKINGS, MOCK_LISTINGS, MOCK_RENTERS } from './m
 import { isSupabaseConfigured } from './supabaseClient';
 import { SupabaseDataSource } from './SupabaseDataSource';
 import { generateVerificationCode } from '../utils/verificationCode';
+import { computeOvertimeBilling } from '../utils/overtimeBilling';
 import { computeResponseDeadline } from '../utils/responseDeadline';
 
 /**
@@ -69,6 +70,23 @@ export interface DataSource {
    * actual check-in/out time regardless of the planned end time.
    */
   extendBooking(bookingId: string, extraMinutes: number): Promise<Booking>;
+  /**
+   * Keeps `endTime` from falling behind reality while a checked-in renter is
+   * still there past their originally booked time. Both the
+   * `bookings_no_overlap` exclusion constraint and `occupied_until` (the
+   * listing-search "is this taken right now" check) key off `endTime` —
+   * neither one knows anything about check-in/out on its own, so if it were
+   * left at the originally planned time, the instant it passed a second
+   * renter could see the spot as free (and the DB would genuinely accept a
+   * new overlapping booking for it) even though the first renter is still
+   * physically parked there. This is the fix: push `endTime` to
+   * `now + a short buffer` while `in_progress`, called periodically by
+   * `ActiveBookingScreen` for as long as it's overdue. A no-op once no
+   * longer `in_progress`, or if `endTime` is already further out than the
+   * buffer (so calling this often/idempotently is fine — see
+   * `SupabaseDataSource`'s conditional `update`).
+   */
+  renewOverdueBooking(bookingId: string): Promise<Booking>;
 
   /**
    * The public-facing slice of a user's profile (name/phone/rating) — used
@@ -98,6 +116,17 @@ export interface DataSource {
    * by the time this runs, so it's safe to call from more than one screen.
    */
   expireBookingRequest(bookingId: string): Promise<Booking>;
+  /**
+   * Flips an accepted (`booked`) booking to `no_show` once its own end time
+   * has passed with no check-in — see `utils/noShow.ts`'s `expireIfNoShow`,
+   * the only intended caller. Doesn't affect whether the spot shows as
+   * available to search (`occupied_until` is purely time-bound, see
+   * migration 0022) — this is about giving the renter an honest "you missed
+   * it" message and keeping the owner's dashboard from showing a booking
+   * that will never happen. A no-op (returns the booking unchanged) if it's
+   * already left `booked` by the time this runs.
+   */
+  expireNoShowBooking(bookingId: string): Promise<Booking>;
   /** Lets the renter withdraw their own request while it's still `pending`
    * rather than wait out the full response window. A no-op if it's already
    * left `pending`. */
@@ -122,6 +151,9 @@ export interface DataSource {
 }
 
 const delay = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
+/** See `DataSource.renewOverdueBooking`'s own doc comment. */
+const RENEWAL_BUFFER_MINUTES = 15;
 
 let bookingSeq = MOCK_BOOKINGS.length + 1;
 let listingSeq = MOCK_LISTINGS.length + 1;
@@ -252,6 +284,28 @@ class MockDataSource implements DataSource {
   async verifyArrivalCode(bookingId: string, code: string): Promise<Booking> {
     await delay(300);
     const booking = this.requireBooking(bookingId);
+
+    if (booking.status !== 'booked') {
+      throw new Error(
+        booking.status === 'no_show'
+          ? "This booking already passed its window without a check-in and was marked a no-show — the renter will need to book again."
+          : 'This request is no longer active.'
+      );
+    }
+
+    // Discovered right here, not via `expireIfNoShow` on some other screen
+    // first: the booking's own window has already passed with nobody
+    // checked in. Refuse the check-in AND close it out now — entering a
+    // still-valid code shouldn't be able to silently revive a booking that
+    // should already have been a no-show just because this happened to be
+    // the first thing to touch it since the deadline passed.
+    if (Date.now() > new Date(booking.endTime).getTime()) {
+      booking.status = 'no_show';
+      throw new Error(
+        "This booking's window has passed without a check-in — it's been marked as a no-show."
+      );
+    }
+
     if (booking.verificationCode !== code.trim()) {
       throw new Error("That code doesn't match — ask the renter to double-check it.");
     }
@@ -263,7 +317,30 @@ class MockDataSource implements DataSource {
   async checkOut(bookingId: string): Promise<Booking> {
     await delay(200);
     const booking = this.requireBooking(bookingId);
+    // Idempotency guard — now load-bearing, not just tidy: the overtime cap
+    // auto-checkout can fire from more than one poll/screen around the same
+    // moment, and re-running the billing below on an already-`completed`
+    // booking would bill it a second time (its own `endTime` is by then the
+    // first checkout's timestamp, not the original schedule).
+    if (booking.status !== 'in_progress') return booking;
+    const listing = this.requireListing(booking.listingId);
     const checkOutTime = new Date();
+    // `booking.endTime` here is still the true scheduled/priced end —
+    // `renewOverdueBooking` only ever touches `graceUntil`, never this — so
+    // it's exactly what overtime needs to be billed from, however late this
+    // checkout actually is.
+    if (booking.checkInAt) {
+      const billing = computeOvertimeBilling({
+        pricingModel: booking.pricingModel,
+        pricePerHour: listing.pricePerHour,
+        checkInAt: booking.checkInAt,
+        scheduledEndTime: booking.endTime,
+        flatTotal: booking.totalPrice,
+        asOf: checkOutTime.getTime(),
+      });
+      booking.totalPrice = billing.total;
+      booking.overtimeMinutes = billing.overtimeMinutes;
+    }
     booking.status = 'completed';
     booking.checkOutAt = checkOutTime.toISOString();
     // The slot was only actually held until whenever the renter really
@@ -271,7 +348,12 @@ class MockDataSource implements DataSource {
     // (or, for an overstay, extending) `endTime` to match is what frees the
     // remainder of an early-finished booking for someone else to book,
     // instead of it staying "occupied" for the rest of the original window.
+    // Safe to do only now, after `computeOvertimeBilling` above has already
+    // read the pre-checkout scheduled end it needed.
     booking.endTime = checkOutTime.toISOString();
+    // No longer meaningful once completed — `endTime` above already
+    // reflects the real, final boundary directly.
+    booking.graceUntil = undefined;
     return booking;
   }
 
@@ -280,9 +362,43 @@ class MockDataSource implements DataSource {
     const booking = this.requireBooking(bookingId);
     const listing = this.requireListing(booking.listingId);
     const newEnd = new Date(new Date(booking.endTime).getTime() + extraMinutes * 60000);
+    // Mirrors the real backend's `bookings_no_overlap` exclusion constraint
+    // (Supabase rejects the equivalent `update` at the DB level instead) —
+    // someone else may have already booked this same spot for right after
+    // the current end time, which the extension would now run into.
+    const conflict = this.bookings.some(
+      (other) =>
+        other.id !== bookingId &&
+        other.listingId === booking.listingId &&
+        other.status !== 'declined' &&
+        other.status !== 'cancelled' &&
+        other.status !== 'expired' &&
+        other.status !== 'no_show' &&
+        new Date(other.startTime).getTime() < newEnd.getTime() &&
+        new Date(other.endTime).getTime() > new Date(booking.endTime).getTime()
+    );
+    if (conflict) {
+      throw new Error(
+        "This spot is already booked by someone else right after your slot — you can't extend."
+      );
+    }
     booking.endTime = newEnd.toISOString();
     if (booking.pricingModel === 'flat') {
       booking.totalPrice += Math.round(listing.pricePerHour * (extraMinutes / 60));
+    }
+    return booking;
+  }
+
+  async renewOverdueBooking(bookingId: string): Promise<Booking> {
+    await delay(100);
+    const booking = this.requireBooking(bookingId);
+    if (booking.status !== 'in_progress') return booking;
+    // Writes `graceUntil`, never `endTime` — `endTime` stays the true
+    // scheduled/priced end so `checkOut` can still bill overtime correctly
+    // afterward (see utils/overtimeBilling.ts).
+    const bufferEnd = Date.now() + RENEWAL_BUFFER_MINUTES * 60000;
+    if (!booking.graceUntil || new Date(booking.graceUntil).getTime() < bufferEnd) {
+      booking.graceUntil = new Date(bufferEnd).toISOString();
     }
     return booking;
   }
@@ -326,6 +442,15 @@ class MockDataSource implements DataSource {
     const booking = this.requireBooking(bookingId);
     if (booking.status === 'pending') {
       booking.status = 'expired';
+    }
+    return booking;
+  }
+
+  async expireNoShowBooking(bookingId: string): Promise<Booking> {
+    await delay(100);
+    const booking = this.requireBooking(bookingId);
+    if (booking.status === 'booked') {
+      booking.status = 'no_show';
     }
     return booking;
   }

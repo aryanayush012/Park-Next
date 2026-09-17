@@ -3,6 +3,7 @@ import {
   Animated,
   Dimensions,
   FlatList,
+  Keyboard,
   Modal,
   PanResponder,
   Pressable,
@@ -25,8 +26,10 @@ import { colors, radius, spacing, typography } from '../../theme';
 import { RenterHomeStackParamList } from '../../navigation/types';
 import { dataSource } from '../../data/dataSource';
 import { AMENITIES, AMENITY_SELECTOR_KEYS } from '../../data/mockData';
+import { AddressSuggestion, useAddressSuggestions } from '../../hooks/useaddresssuggestions';
 import { useCurrentLocation } from '../../hooks/useCurrentLocation';
 import { useRealtimeTable } from '../../hooks/useRealtimeTable';
+import { formatTimeFromISO } from '../../utils/format';
 import { getAvailableOverlap, isListingAvailableForWindow } from '../../utils/listingAvailability';
 import {
   clampToStep,
@@ -39,7 +42,7 @@ import {
   nextDays,
   TIME_STEP_MINUTES,
 } from '../../utils/scheduling';
-import { AmenityKey, BookingType, Listing, VehicleType } from '../../types';
+import { AmenityKey, BookingType, GeoPoint, Listing, VehicleType } from '../../types';
 
 type Props = NativeStackScreenProps<RenterHomeStackParamList, 'HomeMap'>;
 
@@ -110,6 +113,27 @@ export function HomeMapScreen({ navigation }: Props) {
     locationReason === 'services_disabled' || locationReason === 'permission_needs_settings';
   const [listings, setListings] = useState<Listing[]>([]);
   const [query, setQuery] = useState('');
+  // Set once a place is picked from the search suggestions — the search bar
+  // is a destination search ("where you are headed"), not a text/keyword
+  // filter over listings already near you. Null means "search near me".
+  const [searchLocation, setSearchLocation] = useState<GeoPoint | null>(null);
+  const [isSearchFocused, setIsSearchFocused] = useState(false);
+  const { suggestions: searchSuggestions } = useAddressSuggestions(query);
+  // Clearing the box back to empty is how you say "never mind, near me again".
+  useEffect(() => {
+    if (query.trim().length === 0) setSearchLocation(null);
+  }, [query]);
+  const handleSelectSearchLocation = (suggestion: AddressSuggestion) => {
+    setQuery(suggestion.label);
+    setSearchLocation({ latitude: suggestion.latitude, longitude: suggestion.longitude });
+    setIsSearchFocused(false);
+    Keyboard.dismiss();
+  };
+  // What listings are actually searched around — the picked place if there
+  // is one, your real position otherwise. Never `currentLocation` directly
+  // once a place is picked, so a search for "Hinjewadi" while sitting in a
+  // different city still centers on Hinjewadi, not on you.
+  const queryCenter = searchLocation ?? currentLocation;
   const [filters, setFilters] = useState<Filters>(EMPTY_FILTERS);
   const [selectedListingId, setSelectedListingId] = useState<string | null>(null);
   const [sortMode, setSortMode] = useState<'distance' | 'rating'>('distance');
@@ -144,9 +168,32 @@ export function HomeMapScreen({ navigation }: Props) {
   // compute the next frame / decide which way to snap.
   const currentHeightRef = useRef(SHEET_COLLAPSED_HEIGHT);
 
+  // TEMPORARY for closed testing: real product behaviour is the RPC's own
+  // default (5km) — a spot that far from an hourly search isn't useful. But
+  // with only a handful of testers who may not be physically near each
+  // other, a tight radius would make their own test listings invisible to
+  // one another, which reads as a second bug on top of the one this is
+  // fixing. Tighten this back to something realistic (or drop the param
+  // entirely for the RPC's 5km default) before a wider release.
+  const TESTING_SEARCH_RADIUS_METERS = 5000000;
+
+  // Guards against an out-of-order response: `currentLocation` starts on the
+  // mock fallback and this re-fires once real GPS resolves (or once a place
+  // is searched), so there are genuinely multiple requests in flight close
+  // together. Without this, a slow response from an *earlier* request
+  // landing after a newer one would silently overwrite every listing's
+  // correct distance with one measured from the wrong point — the map marker
+  // stays right either way (it's just the listing's own stored position),
+  // only `distanceKm` would quietly revert.
+  const listingsRequestId = useRef(0);
   const loadListings = useCallback(() => {
-    dataSource.getListings().then(setListings);
-  }, []);
+    const requestId = ++listingsRequestId.current;
+    dataSource
+      .getNearbyListings(queryCenter.latitude, queryCenter.longitude, TESTING_SEARCH_RADIUS_METERS)
+      .then((result) => {
+        if (requestId === listingsRequestId.current) setListings(result);
+      });
+  }, [queryCenter.latitude, queryCenter.longitude]);
 
   useEffect(() => {
     loadListings();
@@ -224,12 +271,11 @@ export function HomeMapScreen({ navigation }: Props) {
 
   const budgetValue = filters.maxPricePerHour ?? BUDGET_MAX;
 
+  // `query` narrows down WHERE to search (via queryCenter, above) rather than
+  // filtering listings by keyword — `listings` here is already scoped to
+  // queryCenter's radius, so nothing here needs to re-check the search text.
   const filteredListings = useMemo(() => {
-    const q = query.trim().toLowerCase();
     const result = listings.filter((listing) => {
-      if (q && !listing.title.toLowerCase().includes(q) && !listing.address.toLowerCase().includes(q)) {
-        return false;
-      }
       if (filters.maxPricePerHour !== null && listing.pricePerHour > filters.maxPricePerHour) {
         return false;
       }
@@ -242,7 +288,7 @@ export function HomeMapScreen({ navigation }: Props) {
     return [...result].sort((a, b) =>
       sortMode === 'distance' ? a.distanceKm - b.distanceKm : b.rating - a.rating
     );
-  }, [listings, query, filters, sortMode, availabilityWindow]);
+  }, [listings, filters, sortMode, availabilityWindow]);
 
   // Drives the little count badge on the "Filters" button — sort isn't
   // counted here since it's an ordering preference, not something that
@@ -300,13 +346,32 @@ export function HomeMapScreen({ navigation }: Props) {
     });
   };
 
+  // A live booking (someone else's instant book, most likely) already covers
+  // this exact moment — an instant book here would be rejected server-side
+  // by the `bookings_no_overlap` constraint, so say so up front instead of
+  // letting a renter find out only after tapping through. Only meaningful
+  // for "now": a "later" search asks about a different, specific window,
+  // which `partialNote`/`isListingAvailableForWindow` above already handle
+  // against the listing's own opening hours (just not other people's
+  // bookings within that future window yet — a separate, smaller gap).
+  const isOccupiedNow = (listing: Listing) => searchMode === 'now' && !!listing.occupiedUntil;
+  const occupiedNote = (listing: Listing): string | undefined =>
+    isOccupiedNow(listing)
+      ? t('card.occupiedUntil', { time: formatTimeFromISO(listing.occupiedUntil as string) })
+      : undefined;
+
   const goToDetail = (listingId: string) => {
-    const defaultBookingType: BookingType = searchMode === 'now' ? 'instant' : 'advance';
     // Trim the requested window to what this particular spot can take, so
     // Listing Detail and Booking Flow are pre-filled with a window that can
     // actually be booked rather than one that will be rejected.
     const listing = listings.find((item) => item.id === listingId);
     const overlap = listing ? getAvailableOverlap(listing, availabilityWindow) : null;
+    // An instant book on an occupied-right-now listing would just be
+    // rejected server-side (`bookings_no_overlap`) — go straight to Advance
+    // Booking instead of the dead-end "Book Now" a plain 'now' search would
+    // otherwise default to.
+    const defaultBookingType: BookingType =
+      searchMode === 'now' && !(listing && isOccupiedNow(listing)) ? 'instant' : 'advance';
     // Carries the exact date/time already chosen in the "Schedule for later"
     // modal forward, so neither ListingDetail nor BookingFlow ask for it
     // again — only relevant for 'later', since 'now' always means "starts now".
@@ -351,8 +416,8 @@ export function HomeMapScreen({ navigation }: Props) {
   return (
     <View style={styles.container}>
       <MapView
-        latitude={currentLocation.latitude}
-        longitude={currentLocation.longitude}
+        latitude={queryCenter.latitude}
+        longitude={queryCenter.longitude}
         zoom={14}
         markers={markers}
         userLocation={currentLocation}
@@ -361,15 +426,44 @@ export function HomeMapScreen({ navigation }: Props) {
       />
 
       <SafeAreaView style={styles.topOverlay} edges={['top']} pointerEvents="box-none">
-        <View style={styles.searchBar}>
-          <Ionicons name="search" size={18} color={colors.textMuted} />
-          <TextInput
-            value={query}
-            onChangeText={setQuery}
-            placeholder={t('home.searchPlaceholder')}
-            placeholderTextColor={colors.textMuted}
-            style={styles.searchInput}
-          />
+        <View style={styles.searchBarWrap}>
+          <View style={styles.searchBar}>
+            <Ionicons name="search" size={18} color={colors.textMuted} />
+            <TextInput
+              value={query}
+              onChangeText={setQuery}
+              onFocus={() => setIsSearchFocused(true)}
+              onBlur={() => {
+                // A suggestion tap blurs the input a beat before its own
+                // onPress fires — hiding the list immediately would unmount
+                // the row out from under that tap. Same pattern as the
+                // address field in AddListingDetailsScreen.
+                setTimeout(() => setIsSearchFocused(false), 150);
+              }}
+              placeholder={t('home.searchPlaceholder')}
+              placeholderTextColor={colors.textMuted}
+              style={styles.searchInput}
+            />
+          </View>
+          {isSearchFocused && searchSuggestions.length > 0 ? (
+            <View style={styles.searchSuggestionsBox}>
+              {searchSuggestions.map((item) => (
+                <Pressable
+                  key={item.id}
+                  onPress={() => handleSelectSearchLocation(item)}
+                  style={({ pressed }) => [
+                    styles.searchSuggestionRow,
+                    pressed && styles.searchSuggestionRowPressed,
+                  ]}
+                >
+                  <Ionicons name="location-outline" size={15} color={colors.textSecondary} />
+                  <Text style={styles.searchSuggestionText} numberOfLines={2}>
+                    {item.label}
+                  </Text>
+                </Pressable>
+              ))}
+            </View>
+          ) : null}
         </View>
 
         <View style={styles.modeRow}>
@@ -476,7 +570,9 @@ export function HomeMapScreen({ navigation }: Props) {
                 ratingCount={item.ratingCount}
                 status={item.status}
                 amenities={item.amenities.map((key) => AMENITIES[key])}
-                note={partialNote(item)}
+                note={isOccupiedNow(item) ? occupiedNote(item) : partialNote(item)}
+                occupied={isOccupiedNow(item)}
+                onScheduleInstead={() => goToDetail(item.id)}
                 onPress={() => goToDetail(item.id)}
               />
             </View>
@@ -713,6 +809,10 @@ const styles = StyleSheet.create({
     right: 0,
     paddingHorizontal: spacing.md,
   },
+  searchBarWrap: {
+    position: 'relative',
+    zIndex: 20,
+  },
   searchBar: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -729,6 +829,37 @@ const styles = StyleSheet.create({
     flex: 1,
     ...typography.body,
     color: colors.textPrimary,
+  },
+  searchSuggestionsBox: {
+    position: 'absolute',
+    top: '100%',
+    left: 0,
+    right: 0,
+    marginTop: 2,
+    backgroundColor: colors.surfaceElevated,
+    borderRadius: radius.md,
+    borderWidth: 1,
+    borderColor: colors.surfaceBorder,
+    overflow: 'hidden',
+    zIndex: 30,
+    elevation: 8,
+  },
+  searchSuggestionRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: spacing.xs,
+    paddingHorizontal: spacing.sm,
+    paddingVertical: spacing.sm,
+    borderBottomWidth: 1,
+    borderBottomColor: colors.surfaceBorder,
+  },
+  searchSuggestionRowPressed: {
+    backgroundColor: colors.surface,
+  },
+  searchSuggestionText: {
+    ...typography.caption,
+    color: colors.textPrimary,
+    flex: 1,
   },
   modeRow: {
     flexDirection: 'row',
