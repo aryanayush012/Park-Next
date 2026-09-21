@@ -165,13 +165,16 @@ export function ListingCard({
 const styles = StyleSheet.create({
   card: {
     backgroundColor: colors.surface,
-    borderRadius: radius.lg,
+    borderRadius: radius.xl,
     overflow: 'hidden',
     borderWidth: 1,
     borderColor: colors.surfaceBorder,
+    ...elevation.card,
   },
   cardPressed: {
-    opacity: 0.9,
+    opacity: 1,
+    transform: [{ scale: 0.985 }],
+    borderColor: colors.primary,
   },
   photoWrap: {
     width: '100%',

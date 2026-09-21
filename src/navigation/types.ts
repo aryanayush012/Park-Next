@@ -28,14 +28,16 @@ export type RootStackParamList = {
 };
 
 /**
- * `BookingConfirmation` and `ActiveBooking` are reachable from both the Home
- * and Bookings tab stacks. They're typed against this minimal shared param
- * list (rather than either full stack's list) so the same screen component
- * can be registered on both stacks without a navigation-prop type mismatch.
+ * `ActiveBooking` is reachable from both the Home and Bookings tab stacks.
+ * It's typed against this minimal shared param list (rather than either full
+ * stack's list) so the same screen component can be registered on both
+ * stacks without a navigation-prop type mismatch.
  */
 export type SharedBookingParamList = {
-  BookingConfirmation: { bookingId: string; justBooked?: boolean };
-  ActiveBooking: { bookingId: string };
+  /** `justBooked` plays the confirmation celebration once, on arrival
+   *  straight from the booking flow. Absent everywhere else, so revisiting
+   *  an existing booking opens the plain screen. */
+  ActiveBooking: { bookingId: string; justBooked?: boolean };
 };
 
 /** Home tab — map search through to an active booking, all pushed on one stack. */

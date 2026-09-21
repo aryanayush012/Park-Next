@@ -4,6 +4,8 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { Button } from '../../components/Button';
+import { PinLoader } from '../../components/PinLoader';
+import { BrandFooter } from '../../components/BrandFooter';
 import { StarRating } from '../../components/StarRating';
 import { StarRatingInput } from '../../components/StarRatingInput';
 import { StatusBadge } from '../../components/StatusBadge';
@@ -173,7 +175,7 @@ export function BookingDetailOwnerScreen({ navigation, route }: Props) {
   if (!booking || !listing) {
     return (
       <SafeAreaView style={styles.loadingContainer}>
-        <Text style={styles.loadingText}>{t('ownerDetail.loading')}</Text>
+        <PinLoader label={t('ownerDetail.loading')} />
       </SafeAreaView>
     );
   }
@@ -416,6 +418,7 @@ export function BookingDetailOwnerScreen({ navigation, route }: Props) {
 
         <View style={{ height: spacing.xl }} />
       </ScrollView>
+      <BrandFooter height={84} />
     </SafeAreaView>
   );
 }
@@ -447,10 +450,6 @@ const styles = StyleSheet.create({
     backgroundColor: colors.background,
     alignItems: 'center',
     justifyContent: 'center',
-  },
-  loadingText: {
-    ...typography.body,
-    color: colors.textSecondary,
   },
   header: {
     flexDirection: 'row',

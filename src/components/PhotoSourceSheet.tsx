@@ -1,6 +1,7 @@
 import React from 'react';
 import { Modal, Platform, Pressable, StyleSheet, Text, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import { useSheetBottomInset } from '../hooks/useSheetBottomInset';
 import { colors, radius, spacing, typography } from '../theme';
 import { useTranslation } from '../i18n';
 
@@ -31,6 +32,7 @@ export function PhotoSourceSheet({
   onLibrary,
 }: PhotoSourceSheetProps) {
   const { t } = useTranslation();
+  const bottomInset = useSheetBottomInset();
   const choose = (action: () => void) => {
     onClose();
     // The picker is a separate view controller: on iOS, presenting it while
@@ -55,7 +57,7 @@ export function PhotoSourceSheet({
     >
       <Pressable style={styles.backdrop} onPress={onClose} accessibilityLabel={t('common.dismiss')}>
         {/* Swallows taps on the sheet itself so they don't close it. */}
-        <Pressable style={styles.sheet} onPress={() => {}}>
+        <Pressable style={[styles.sheet, { paddingBottom: bottomInset }]} onPress={() => {}}>
           <View style={styles.grabber} />
           <Text style={styles.title}>{title}</Text>
 
@@ -111,7 +113,8 @@ const styles = StyleSheet.create({
     borderColor: colors.surfaceBorder,
     paddingHorizontal: spacing.lg,
     paddingTop: spacing.sm,
-    paddingBottom: spacing.xl,
+    // paddingBottom comes from useSheetBottomInset — a fixed value here
+    // hides the Cancel button behind the navigation bar on devices with one.
   },
   grabber: {
     alignSelf: 'center',

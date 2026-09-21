@@ -1,41 +1,37 @@
 /**
- * ParkNext animated splash: a car drives in, lays the road as it goes, the road
- * closes into the ParkNext "P", and the car noses into the bay and becomes the
- * location pin.
+ * ParkNext animated splash: a night map of the city, a car arriving from off
+ * frame, a route lighting up ahead of it to a parking spot -- then the
+ * wordmark.
  *
  * WHY THIS IS AN IN-APP OVERLAY, NOT THE NATIVE SPLASH
  * `expo-splash-screen` can only ever show a static image -- SDK 57's
  * `setOptions` exposes a fade `duration` and an iOS-only `fade` flag, nothing
- * else. So `app.json` sets the splash plugin's `backgroundColor` to the logo
- * amber and gives it no image at all, and this component paints the same amber
- * and animates on top of it. The hand-off is therefore invisible: the amber
- * field is already on screen, and the animation simply starts happening in it.
- * `App.tsx` renders this ABOVE the navigator, so the whole app mounts and boots
- * underneath while it plays -- it costs no startup time.
+ * else. So `app.json` sets the splash plugin's `backgroundColor` to this same
+ * field colour and gives it no image at all, and this component paints over
+ * it. The hand-off is therefore invisible: the black field is already on
+ * screen, and the animation simply starts happening in it. `App.tsx` renders
+ * this ABOVE the navigator, so the whole app mounts and boots underneath while
+ * it plays -- it costs no startup time.
  *
  * WHY IT STAYS AT FULL FRAME RATE
- * Every animated property is opacity or transform, so all of it runs on the
- * native driver -- which matters more here than anywhere else in the app, since
- * the JS thread is busy booting at exactly this moment. Nothing animates an SVG
- * prop (that would silently fall back to the JS driver), which is why each
- * moving piece is its own <Animated.View> wrapping its own small <Svg> rather
- * than one big SVG with animated children.
+ * The JS thread is busy booting at exactly this moment, so anything needing it
+ * per frame will stutter. Every animated property here is opacity or transform
+ * and runs on the native driver; nothing animates an SVG prop, which would
+ * silently fall back to the JS driver. That constraint decides the structure:
  *
- * The road is revealed as a sequence of ribbon GROUPS (a handful of adjacent
- * slices sharing one Svg and one fade-in), each with its own bounding box so
- * its layer is a small view -- see splashGeometry.ts's own header for why this
- * is grouped rather than one Svg per original slice: on a mid-range Android
- * device, 51 separate native Svg views animating at once (the original
- * one-per-slice count) was visibly janky. `styles.tile` also opts into
- * `renderToHardwareTextureAndroid`, which asks Android to composite this
- * whole subtree as a single GPU layer instead of blending every child view
- * into the frame separately -- cheaper once there are more than a couple of
- * overlapping animated layers, which this still is even after grouping.
- * Geometry, including the reveal order, lives in `splashGeometry.ts` (traced
- * from the icon artwork; see that file's header).
+ *   - The map is ONE static <Svg> (SplashCity) that renders once and is
+ *     memoised, despite being by far the busiest thing on screen. It is
+ *     scenery, and contributes nothing to the animation.
+ *   - Everything that moves is its own small layer above it, and is only ever
+ *     translated, scaled or faded.
  *
- * Honours the OS "reduce motion" setting: it then goes straight to the finished
- * logo, holds, and fades out.
+ * THE ORDER OF EVENTS IS THE POINT
+ * Map, then car, then route, then the spot: you are here, here is the way,
+ * here is the bay. Playing those together would just be a lot of things
+ * appearing at once; in sequence they are a sentence about what the app does.
+ *
+ * Honours the OS "reduce motion" setting: it then shows the finished frame --
+ * the composition in the brand artwork -- holds, and fades out.
  */
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
@@ -45,123 +41,118 @@ import {
   Easing,
   Pressable,
   StyleSheet,
+  Text,
   View,
 } from 'react-native';
-import Svg, { Circle, Defs, G, Path, RadialGradient, Stop } from 'react-native-svg';
+import Svg, { Defs, Ellipse, LinearGradient, Path, RadialGradient, Stop } from 'react-native-svg';
 
 import { colors } from '../theme/colors';
-import { SPLASH } from './splashGeometry';
 import { CAR_ASPECT, SplashCar } from './SplashCar';
+import { SplashCity } from './SplashCity';
+import {
+  CAR_REST_Y,
+  CAR_START_Y,
+  CAR_X,
+  MINI_PINS,
+  PIN_GROUND,
+  ROUTE_PATH,
+  SCENE_H,
+  SCENE_W,
+} from './splashScene';
 
 /* ------------------------------------------------------------------ layout */
 
 const { width: SCREEN_W, height: SCREEN_H } = Dimensions.get('window');
 
-const TILE_PX = Math.round(SCREEN_W * 0.8);
-/** One tile unit in dp. Every number in `splashGeometry` is in tile units. */
-const U = TILE_PX / SPLASH.tile;
-const TILE_TOP = Math.round(SCREEN_H * 0.29);
-const TILE_LEFT = Math.round((SCREEN_W - TILE_PX) / 2);
+/** The map fills the width; `U` converts scene units to dp. */
+const U = SCREEN_W / SCENE_W;
+const SCENE_PX_H = SCENE_H * U;
 
-const WORDMARK = require('../../assets/logo-wordmark.png');
-/** Intrinsic size of assets/logo-wordmark.png. `Image.resolveAssetSource` can
- * do this at runtime, but it crashes when called at module scope before the
- * image is registered — not worth it for a value that only changes if the
- * asset file itself does. */
-const WORDMARK_ASPECT = 1400 / 285;
-const WORDMARK_W = Math.round(TILE_PX * 0.8);
-const WORDMARK_H = Math.round(WORDMARK_W / WORDMARK_ASPECT);
+/** Sized from the artwork: the car is about a fifth of the map's height. */
+const CAR_LEN = 72 * U;
+const CAR_W = CAR_LEN / CAR_ASPECT;
 
-const CAR_L = SPLASH.carLen;
-const CAR_W = CAR_L / CAR_ASPECT;
+/** The pin, in scene units. Its tip lands on PIN_GROUND. */
+const PIN_W = 46;
+const PIN_H = 80;
+/** The pin artwork's own box, which PIN_PATH is drawn in. */
+const PIN_VB_W = 76;
+const PIN_VB_H = 112;
+const PIN_PATH =
+  'M38,0 C17,0 0,17 0,38 C0,66 28,90 38,112 C48,90 76,66 76,38 C76,17 59,0 38,0 Z';
+
+/**
+ * The branding is pinned to the bottom of the screen rather than hung off the
+ * bottom of the map. The map's height follows the screen's WIDTH (it keeps its
+ * aspect), so anything positioned below it would drift up the screen on a tall
+ * narrow phone and run off the end on a short wide one.
+ */
+const BRAND_BOTTOM = SCREEN_H * 0.11;
+
+/**
+ * Inter ExtraBold sets "ParkNext" about 4.59x its font size wide, measured;
+ * the artwork gives the wordmark just over half the screen.
+ */
+const WORD_SIZE = Math.round((SCREEN_W * 0.52) / 4.59);
+const BAR_W = Math.round(SCREEN_W * 0.36);
 
 /* ---------------------------------------------------------------- timeline */
 
-const T = {
-  drive: 1500, // car enters and drives the road
-  park: 480, // turns off the road and noses into the bay
-  resolve: 420, // car -> pin
-  paint: 1900, // lane markings, laid down just behind the car
-  fill: 380, // the P's counter floods in as the loop closes
-  word: 320,
-  hold: 420,
+const AT = {
+  city: 0,
+  pins: 200,
+  drive: 380,
+  route: 1050,
+  drop: 1300,
+  brand: 1500,
+  bar: 1650,
+  steps: 1850,
+};
+const DUR = {
+  city: 560,
+  pins: 680, // covers the whole stagger; the offsets live in the interpolations
+  drive: 850,
+  route: 360,
+  drop: 480,
+  brand: 480,
+  bar: 850,
+  steps: 420,
   out: 320,
 };
-const AT_FILL = 1140;
-const AT_RESOLVE = T.drive + T.park - 40; // overlaps the end of the turn
-const AT_WORD = T.drive + T.park + 120;
-const TOTAL = AT_RESOLVE + T.resolve + T.hold + T.out;
+/** One full ripple, from the pin out to nothing. */
+const RIPPLE_MS = 2100;
+const RING_COUNT = 3;
+const TOTAL = 2820;
 
 /**
- * Cruise, then brake -- one continuous curve rather than an ease-out chained
- * into an ease-in, which would decelerate to a dead stop mid-move and then
- * lurch. `V0` is chosen so f(1) = 1 exactly and the derivative is continuous at
- * the seam, so there is no velocity discontinuity anywhere.
+ * The car is already at speed when it enters the frame, so it only ever
+ * decelerates -- it brakes into the bay rather than starting from rest in
+ * mid-shot.
  */
-const BRAKE_AT = 0.45;
-const V0 = 2 / (1 + BRAKE_AT);
-const cruiseThenBrake = (t: number) =>
-  t <= BRAKE_AT
-    ? V0 * t
-    : V0 * BRAKE_AT + V0 * (t - BRAKE_AT) - (V0 / (2 * (1 - BRAKE_AT))) * (t - BRAKE_AT) ** 2;
-
-/* ------------------------------------------------------------------ helpers */
-
-/** 0 -> 1 across [from, to] of `value`, flat outside it. */
-const ramp = (value: Animated.Value, from: number, to: number) =>
-  value.interpolate({
-    inputRange: [Math.max(0, from), Math.max(0, from) + Math.max(0.001, to - from)],
-    outputRange: [0, 1],
-    extrapolate: 'clamp',
-  });
-
-/** Scale a layer about an arbitrary tile-space point: T(d) . S(s) . T(-d). */
-const scaleAbout = (point: [number, number], scale: Animated.AnimatedInterpolation<number>) => {
-  const dx = (point[0] - SPLASH.tile / 2) * U;
-  const dy = (point[1] - SPLASH.tile / 2) * U;
-  return [
-    { translateX: dx },
-    { translateY: dy },
-    { scale },
-    { translateX: -dx },
-    { translateY: -dy },
-  ];
-};
-
-/**
- * Road chunks are laid out as separate absolutely-positioned views that
- * overlap slightly by design (see splashGeometry.ts) so the ribbon tiles
- * without seams. But React Native snaps each view's left/top/width/height to
- * whole device pixels independently -- rounding one chunk's edge down and its
- * neighbour's up shrinks that overlap, and on some pixel densities eats it
- * entirely, leaving a hairline gap of the amber background showing through.
- * Rounding the box outward (floor the start, ceil the end) means rounding can
- * only ever grow a box, never shrink it, so an overlap that exists in the
- * source geometry can't be rounded away.
- */
-const boxStyle = (s: { x: number; y: number; w: number; h: number }) => {
-  const left = Math.floor(s.x * U);
-  const top = Math.floor(s.y * U);
-  return {
-    position: 'absolute' as const,
-    left,
-    top,
-    width: Math.ceil((s.x + s.w) * U) - left,
-    height: Math.ceil((s.y + s.h) * U) - top,
-  };
-};
+const ARRIVE = Easing.out(Easing.cubic);
 
 /* ---------------------------------------------------------------- component */
 
 type Props = { onFinish: () => void };
 
 export const AnimatedSplash: React.FC<Props> = ({ onFinish }) => {
-  const journey = useRef(new Animated.Value(0)).current; // drive + turn, one arc
-  const paint = useRef(new Animated.Value(0)).current;
-  const fill = useRef(new Animated.Value(0)).current;
-  const resolve = useRef(new Animated.Value(0)).current;
-  const word = useRef(new Animated.Value(0)).current;
+  const city = useRef(new Animated.Value(0)).current;
+  const pins = useRef(new Animated.Value(0)).current;
+  const drive = useRef(new Animated.Value(0)).current;
+  const route = useRef(new Animated.Value(0)).current;
+  const drop = useRef(new Animated.Value(0)).current;
+  const brand = useRef(new Animated.Value(0)).current;
+  const bar = useRef(new Animated.Value(0)).current;
+  const steps = useRef(new Animated.Value(0)).current;
   const veil = useRef(new Animated.Value(1)).current;
+  /**
+   * One value per ring rather than one value read at three phase offsets: the
+   * offsets would have to wrap, and a plain staggered loop per ring says the
+   * same thing without leaning on modulo arithmetic in the native driver.
+   */
+  const rings = useRef(
+    Array.from({ length: RING_COUNT }, () => new Animated.Value(0))
+  ).current;
 
   const [reduceMotion, setReduceMotion] = useState<boolean | null>(null);
   const done = useRef(false);
@@ -186,22 +177,15 @@ export const AnimatedSplash: React.FC<Props> = ({ onFinish }) => {
     if (reduceMotion === null) return; // still asking the OS
 
     if (reduceMotion) {
-      // No journey at all: show the finished mark, hold, leave.
-      journey.setValue(1);
-      paint.setValue(1);
-      fill.setValue(1);
-      resolve.setValue(1);
+      // The finished frame, held: everything arrived, nothing travelling.
+      for (const v of [city, pins, drive, route, drop, brand, bar, steps]) v.setValue(1);
+      // One ring, parked mid-spread, so the spot still reads as marked.
+      rings[0].setValue(0.4);
       const still = Animated.sequence([
-        Animated.timing(word, {
-          toValue: 1,
-          duration: 240,
-          easing: Easing.out(Easing.cubic),
-          useNativeDriver: true,
-        }),
-        Animated.delay(700),
+        Animated.delay(1000),
         Animated.timing(veil, {
           toValue: 0,
-          duration: T.out,
+          duration: DUR.out,
           easing: Easing.in(Easing.cubic),
           useNativeDriver: true,
         }),
@@ -210,59 +194,51 @@ export const AnimatedSplash: React.FC<Props> = ({ onFinish }) => {
       return () => still.stop();
     }
 
+    const step = (
+      delay: number,
+      value: Animated.Value,
+      duration: number,
+      easing: (t: number) => number
+    ) =>
+      Animated.sequence([
+        Animated.delay(delay),
+        Animated.timing(value, { toValue: 1, duration, easing, useNativeDriver: true }),
+      ]);
+
+    // Each ring runs the same loop, started a third of a cycle apart, which is
+    // what makes them read as one wave spreading rather than three rings
+    // pulsing together.
+    const ripples = rings.map((v, i) =>
+      Animated.sequence([
+        Animated.delay(AT.drop + (i * RIPPLE_MS) / RING_COUNT),
+        Animated.loop(
+          Animated.timing(v, {
+            toValue: 1,
+            duration: RIPPLE_MS,
+            // Linear: a spreading wave travels at a constant rate, and easing
+            // it would make every cycle visibly restart.
+            easing: Easing.linear,
+            useNativeDriver: true,
+          })
+        ),
+      ])
+    );
+    ripples.forEach((r) => r.start());
+
     const anim = Animated.parallel([
+      step(AT.city, city, DUR.city, Easing.out(Easing.cubic)),
+      step(AT.pins, pins, DUR.pins, Easing.linear),
+      step(AT.drive, drive, DUR.drive, ARRIVE),
+      step(AT.route, route, DUR.route, Easing.out(Easing.quad)),
+      step(AT.drop, drop, DUR.drop, Easing.out(Easing.back(1.6))),
+      step(AT.brand, brand, DUR.brand, Easing.out(Easing.cubic)),
+      step(AT.bar, bar, DUR.bar, Easing.inOut(Easing.quad)),
+      step(AT.steps, steps, DUR.steps, Easing.out(Easing.cubic)),
       Animated.sequence([
-        Animated.timing(journey, {
-          toValue: SPLASH.driveShare,
-          duration: T.drive,
-          easing: cruiseThenBrake,
-          useNativeDriver: true,
-        }),
-        Animated.timing(journey, {
-          toValue: 1,
-          duration: T.park,
-          easing: Easing.inOut(Easing.cubic),
-          useNativeDriver: true,
-        }),
-      ]),
-      Animated.timing(paint, {
-        toValue: 1,
-        duration: T.paint,
-        easing: Easing.linear,
-        useNativeDriver: true,
-      }),
-      Animated.sequence([
-        Animated.delay(AT_FILL),
-        Animated.timing(fill, {
-          toValue: 1,
-          duration: T.fill,
-          easing: Easing.out(Easing.cubic),
-          useNativeDriver: true,
-        }),
-      ]),
-      Animated.sequence([
-        Animated.delay(AT_RESOLVE),
-        Animated.timing(resolve, {
-          toValue: 1,
-          duration: T.resolve,
-          easing: Easing.out(Easing.back(1.45)),
-          useNativeDriver: true,
-        }),
-      ]),
-      Animated.sequence([
-        Animated.delay(AT_WORD),
-        Animated.timing(word, {
-          toValue: 1,
-          duration: T.word,
-          easing: Easing.out(Easing.cubic),
-          useNativeDriver: true,
-        }),
-      ]),
-      Animated.sequence([
-        Animated.delay(TOTAL - T.out),
+        Animated.delay(TOTAL - DUR.out),
         Animated.timing(veil, {
           toValue: 0,
-          duration: T.out,
+          duration: DUR.out,
           easing: Easing.in(Easing.cubic),
           useNativeDriver: true,
         }),
@@ -270,247 +246,322 @@ export const AnimatedSplash: React.FC<Props> = ({ onFinish }) => {
     ]);
 
     anim.start(({ finished }) => finished && finish());
-    return () => anim.stop();
-  }, [reduceMotion, journey, paint, fill, resolve, word, veil, finish]);
+    return () => {
+      anim.stop();
+      ripples.forEach((r) => r.stop());
+    };
+  }, [reduceMotion, city, pins, drive, route, drop, rings, brand, bar, steps, veil, finish]);
 
   /** Tapping anywhere gets you past it -- this matters by the hundredth launch. */
   const skip = useCallback(() => {
-    journey.stopAnimation();
     Animated.timing(veil, {
       toValue: 0,
       duration: 160,
       easing: Easing.in(Easing.cubic),
       useNativeDriver: true,
     }).start(finish);
-  }, [journey, veil, finish]);
+  }, [veil, finish]);
 
-  const anims = useMemo(() => {
-    const carX = journey.interpolate({
-      inputRange: SPLASH.car.in,
-      outputRange: SPLASH.car.x.map((v) => (v - SPLASH.tile / 2) * U),
-      extrapolate: 'clamp',
-    });
-    const carY = journey.interpolate({
-      inputRange: SPLASH.car.in,
-      outputRange: SPLASH.car.y.map((v) => (v - SPLASH.tile / 2) * U),
-      extrapolate: 'clamp',
-    });
-    const carRot = journey.interpolate({
-      inputRange: SPLASH.car.in,
-      outputRange: SPLASH.car.rot,
-      extrapolate: 'clamp',
-    });
-    return {
-      carX,
-      carY,
-      carRot,
-      carScale: resolve.interpolate({ inputRange: [0, 1], outputRange: [1, 0.5] }),
-      // fades in as it arrives on screen, out as the pin takes over -- two
-      // different drivers, so it is composed rather than one ramp
-      carOpacity: Animated.multiply(
-        journey.interpolate({ inputRange: [0, 0.09], outputRange: [0, 1], extrapolate: 'clamp' }),
-        resolve.interpolate({ inputRange: [0.12, 0.72], outputRange: [1, 0], extrapolate: 'clamp' }),
-      ),
-      chunkGroup: SPLASH.chunkGroups.map((g) => ramp(journey, g.trig, g.trig + g.width)),
-      dashGroup: SPLASH.dashGroups.map((g) => ramp(paint, g.trig, g.trig + g.width)),
-      counterOpacity: ramp(fill, 0, 0.18),
-      counterScale: fill.interpolate({ inputRange: [0, 1], outputRange: [0.5, 1] }),
-      houseOpacity: ramp(resolve, 0, 0.5),
-      pinOpacity: ramp(resolve, 0, 0.28),
-      pinScale: resolve.interpolate({ inputRange: [0, 1], outputRange: [0.32, 1] }),
-      glowOpacity: resolve.interpolate({
-        inputRange: [0, 0.18, 0.55, 1],
-        outputRange: [0, 0.4, 0.28, 0],
-        extrapolate: 'clamp',
+  const anims = useMemo(
+    () => ({
+      cityScale: city.interpolate({ inputRange: [0, 1], outputRange: [1.06, 1] }),
+      // Straight up the road it is already on. The route's own bend starts
+      // ahead of where the car stops, so there is nothing here to steer around
+      // and no rotation to interpolate.
+      carY: drive.interpolate({
+        inputRange: [0, 1],
+        outputRange: [(CAR_START_Y - CAR_REST_Y) * U, 0],
       }),
-      glowScale: resolve.interpolate({ inputRange: [0, 1], outputRange: [0.7, 1.4] }),
-      wordOpacity: word,
-      wordShift: word.interpolate({ inputRange: [0, 1], outputRange: [10, 0] }),
-      wordScale: word.interpolate({ inputRange: [0, 1], outputRange: [0.94, 1] }),
-    };
-  }, [journey, paint, fill, resolve, word]);
+      dropRise: drop.interpolate({ inputRange: [0, 1], outputRange: [-34 * U, 0] }),
+      dropScale: drop.interpolate({ inputRange: [0, 1], outputRange: [0.4, 1] }),
+      ringStyles: rings.map((v) => ({
+        transform: [{ scale: v.interpolate({ inputRange: [0, 1], outputRange: [0.28, 1.35] }) }],
+        opacity: v.interpolate({
+          inputRange: [0, 0.14, 0.7, 1],
+          outputRange: [0, 0.9, 0.18, 0],
+        }),
+      })),
+      brandRise: brand.interpolate({ inputRange: [0, 1], outputRange: [16, 0] }),
+    }),
+    [city, drive, drop, rings, brand]
+  );
 
   return (
-    <Pressable style={StyleSheet.absoluteFill} onPress={skip} accessibilityRole="button" accessibilityLabel="Skip intro">
+    <Pressable
+      style={[StyleSheet.absoluteFill, styles.field]}
+      onPress={skip}
+      accessibilityRole="none"
+    >
       <Animated.View style={[StyleSheet.absoluteFill, styles.field, { opacity: veil }]}>
-        <View style={styles.tile} pointerEvents="none" renderToHardwareTextureAndroid collapsable={false}>
-          {/* the road, laid group by group just under the car's nose -- each
-              group bundles a handful of adjacent slices (splashGeometry.ts),
-              positioned within the shared Svg via their own <G transform>
-              rather than each getting its own top-level Svg. */}
-          {SPLASH.chunkGroups.map((g, i) => (
-            <Animated.View key={`road-${i}`} style={[boxStyle(g), { opacity: anims.chunkGroup[i] }]}>
-              {/* 100%/"none" rather than the exact `g.w * U` px size: boxStyle
-                  can round this group's box a hair larger than that to close
-                  the seam with its neighbour, and the artwork must fill
-                  whatever size its box actually ends up, not stop short of it. */}
-              <Svg width="100%" height="100%" viewBox={`0 0 ${g.w} ${g.h}`} preserveAspectRatio="none">
-                {g.pieces.map((p, j) => (
-                  <G key={j} translateX={p.dx} translateY={p.dy}>
-                    <Path d={p.d} fill={colors.roadInk} />
-                  </G>
-                ))}
+        {/* The map settles in rather than switching on. */}
+        <Animated.View
+          style={[styles.scene, { opacity: city, transform: [{ scale: anims.cityScale }] }]}
+        >
+          <SplashCity width={SCREEN_W} height={SCENE_PX_H} />
+        </Animated.View>
+
+        {/* Ripples on the ground, under everything else so the pin and the
+            route sit on top of them. */}
+        <Animated.View style={[styles.scene, { opacity: drop }]} pointerEvents="none">
+          {anims.ringStyles.map((s, i) => (
+            <Animated.View key={i} style={[StyleSheet.absoluteFill, s]}>
+              <Svg width={SCREEN_W} height={SCENE_PX_H} viewBox={`0 0 ${SCENE_W} ${SCENE_H}`}>
+                <Ellipse
+                  cx={PIN_GROUND[0]}
+                  cy={PIN_GROUND[1]}
+                  rx={68}
+                  ry={20}
+                  fill="none"
+                  stroke={colors.logoAmber}
+                  strokeWidth={2.6}
+                />
               </Svg>
             </Animated.View>
           ))}
+        </Animated.View>
 
-          {/* the area the loop encloses -- floods in as the P closes */}
-          <Animated.View
-            style={[
-              styles.tileLayer,
-              {
-                opacity: anims.counterOpacity,
-                transform: scaleAbout(SPLASH.counterCentre, anims.counterScale),
-              },
-            ]}
-          >
-            <Svg width={TILE_PX} height={TILE_PX} viewBox={`0 0 ${SPLASH.tile} ${SPLASH.tile}`}>
-              <Path d={SPLASH.counter} fill={colors.roadInk} />
-            </Svg>
-          </Animated.View>
+        {/* Route. One static Svg: three strokes of the same path, so the spill,
+            the line and its hot core can never drift apart. */}
+        <Animated.View style={[styles.scene, { opacity: route }]} pointerEvents="none">
+          <Svg width={SCREEN_W} height={SCENE_PX_H} viewBox={`0 0 ${SCENE_W} ${SCENE_H}`}>
+            <Path
+              d={ROUTE_PATH}
+              stroke={colors.logoAmber}
+              strokeOpacity={0.16}
+              strokeWidth={15}
+              strokeLinecap="round"
+              fill="none"
+            />
+            <Path
+              d={ROUTE_PATH}
+              stroke={colors.logoAmber}
+              strokeOpacity={0.55}
+              strokeWidth={6.5}
+              strokeLinecap="round"
+              fill="none"
+            />
+            <Path
+              d={ROUTE_PATH}
+              stroke="#FFE7A6"
+              strokeWidth={2.6}
+              strokeLinecap="round"
+              fill="none"
+            />
+          </Svg>
+        </Animated.View>
 
-          {/* lane markings, grouped the same way as the road above */}
-          {SPLASH.dashGroups.map((g, i) => (
-            <Animated.View key={`dash-${i}`} style={[boxStyle(g), { opacity: anims.dashGroup[i] }]}>
-              <Svg width="100%" height="100%" viewBox={`0 0 ${g.w} ${g.h}`} preserveAspectRatio="none">
-                {g.pieces.map((p, j) => (
-                  <G key={j} translateX={p.dx} translateY={p.dy}>
-                    <Path d={p.d} fill={colors.logoAmber} />
-                  </G>
-                ))}
-              </Svg>
-            </Animated.View>
-          ))}
-
-          {/* the house glyph tucked behind the pin */}
-          <Animated.View style={[boxStyle(SPLASH.house), { opacity: anims.houseOpacity }]}>
-            <Svg
-              width={SPLASH.house.w * U}
-              height={SPLASH.house.h * U}
-              viewBox={`0 0 ${SPLASH.house.w} ${SPLASH.house.h}`}
-            >
-              <Path d={SPLASH.house.d} fill={colors.logoAmber} />
-            </Svg>
-          </Animated.View>
-
-          {/* the car */}
-          <Animated.View
-            style={[
-              styles.car,
-              {
-                opacity: anims.carOpacity,
+        {/* The other spots on the map, arriving one after another. */}
+        {MINI_PINS.map((p, i) => {
+          // Staggered by slicing one value rather than running four animations.
+          const from = i * 0.18;
+          const pop = pins.interpolate({
+            inputRange: [from, Math.min(0.999, from + 0.5)],
+            outputRange: [0, 1],
+            extrapolate: 'clamp',
+          });
+          const w = PIN_W * p.scale * U;
+          const h = PIN_H * p.scale * U;
+          return (
+            <Animated.View
+              key={i}
+              pointerEvents="none"
+              style={{
+                position: 'absolute',
+                left: p.x * U - w / 2,
+                top: p.y * U - h,
+                width: w,
+                height: h,
+                opacity: pop,
+                // Grows out of its own tip, where it meets the ground.
                 transform: [
-                  { translateX: anims.carX },
-                  { translateY: anims.carY },
-                  { rotate: anims.carRot },
-                  { scale: anims.carScale },
+                  { translateY: h / 2 },
+                  { scale: pop.interpolate({ inputRange: [0, 1], outputRange: [0.3, 1] }) },
+                  { translateY: -h / 2 },
                 ],
-              },
-            ]}
-          >
-            <SplashCar width={CAR_W * U} height={CAR_L * U} />
-          </Animated.View>
+              }}
+            >
+              <PinArt />
+            </Animated.View>
+          );
+        })}
 
-          {/* a beat of light where the car becomes the pin */}
-          <Animated.View
-            style={[
-              styles.tileLayer,
-              { opacity: anims.glowOpacity, transform: scaleAbout(SPLASH.tip, anims.glowScale) },
-            ]}
-          >
-            <Svg width={TILE_PX} height={TILE_PX} viewBox={`0 0 ${SPLASH.tile} ${SPLASH.tile}`}>
-              <Defs>
-                <RadialGradient
-                  id="pnHalo"
-                  cx={SPLASH.disc.cx}
-                  cy={SPLASH.disc.cy}
-                  rx={SPLASH.disc.r * 2.4}
-                  ry={SPLASH.disc.r * 2.4}
-                  fx={SPLASH.disc.cx}
-                  fy={SPLASH.disc.cy}
-                  gradientUnits="userSpaceOnUse"
-                >
-                  <Stop offset={0} stopColor={SPLASH.disc.stops[0].color} stopOpacity={0.75} />
-                  <Stop offset={1} stopColor={SPLASH.disc.stops[0].color} stopOpacity={0} />
-                </RadialGradient>
-              </Defs>
-              <Circle
-                cx={SPLASH.disc.cx}
-                cy={SPLASH.disc.cy}
-                r={SPLASH.disc.r * 2.4}
-                fill="url(#pnHalo)"
-              />
-            </Svg>
-          </Animated.View>
+        {/* The destination pin, dropping onto the spot. */}
+        <Animated.View
+          pointerEvents="none"
+          style={{
+            position: 'absolute',
+            left: PIN_GROUND[0] * U - (PIN_W * U) / 2,
+            top: (PIN_GROUND[1] - PIN_H) * U,
+            width: PIN_W * U,
+            height: PIN_H * U,
+            opacity: drop,
+            transform: [
+              { translateY: anims.dropRise },
+              { translateY: (PIN_H * U) / 2 },
+              { scale: anims.dropScale },
+              { translateY: -(PIN_H * U) / 2 },
+            ],
+          }}
+        >
+          <PinArt />
+        </Animated.View>
 
-          {/* the pin, growing out of its own tip */}
-          <Animated.View
-            style={[
-              styles.tileLayer,
-              { opacity: anims.pinOpacity, transform: scaleAbout(SPLASH.tip, anims.pinScale) },
-            ]}
-          >
-            <Svg width={TILE_PX} height={TILE_PX} viewBox={`0 0 ${SPLASH.tile} ${SPLASH.tile}`}>
-              <Defs>
-                <RadialGradient
-                  id="pnCore"
-                  cx={SPLASH.disc.cx}
-                  cy={SPLASH.disc.cy}
-                  rx={SPLASH.disc.r}
-                  ry={SPLASH.disc.r}
-                  fx={SPLASH.disc.cx}
-                  fy={SPLASH.disc.cy}
-                  gradientUnits="userSpaceOnUse"
-                >
-                  {SPLASH.disc.stops.map((s) => (
-                    <Stop key={s.offset} offset={s.offset} stopColor={s.color} />
-                  ))}
-                </RadialGradient>
-              </Defs>
-              <Path d={SPLASH.pin} fill={colors.logoAmber} />
-              <Circle cx={SPLASH.disc.cx} cy={SPLASH.disc.cy} r={SPLASH.disc.r} fill="url(#pnCore)" />
-            </Svg>
+        {/* Clipped to the map. The car starts below SCENE_H so it can drive
+            IN rather than fade up -- but the scene is only as tall as the map,
+            and the branding sits further down still, so without this the first
+            frame is a car parked in the black gap between the two. */}
+        <View style={styles.sceneClip} pointerEvents="none">
+          <Animated.View style={[styles.car, { transform: [{ translateY: anims.carY }] }]}>
+            <SplashCar width={CAR_W} height={CAR_LEN} />
           </Animated.View>
         </View>
 
-        <Animated.Image
-          source={WORDMARK}
-          resizeMode="contain"
-          style={[
-            styles.wordmark,
-            {
-              opacity: anims.wordOpacity,
-              transform: [{ translateY: anims.wordShift }, { scale: anims.wordScale }],
-            },
-          ]}
-        />
+        <View style={styles.brand} pointerEvents="none">
+          <Animated.Text
+            allowFontScaling={false}
+            style={[
+              styles.wordmark,
+              { opacity: brand, transform: [{ translateY: anims.brandRise }] },
+            ]}
+          >
+            Park<Text style={styles.wordmarkAccent}>Next</Text>
+          </Animated.Text>
+
+          <Animated.Text
+            allowFontScaling={false}
+            style={[
+              styles.tagline,
+              { opacity: brand, transform: [{ translateY: anims.brandRise }] },
+            ]}
+          >
+            PARK SMART   LIVE BETTER
+          </Animated.Text>
+
+          <View style={styles.barTrack}>
+            <Animated.View
+              style={[
+                styles.barFill,
+                {
+                  // Fills from the left edge instead of growing out of the
+                  // middle. RN has no transform-origin; this is the stand-in.
+                  transform: [
+                    { translateX: -BAR_W / 2 },
+                    { scaleX: bar },
+                    { translateX: BAR_W / 2 },
+                  ],
+                },
+              ]}
+            />
+          </View>
+
+          <Animated.Text allowFontScaling={false} style={[styles.steps, { opacity: steps }]}>
+            FIND <Text style={styles.stepDot}>•</Text> BOOK <Text style={styles.stepDot}>•</Text>{' '}
+            PARK
+          </Animated.Text>
+        </View>
       </Animated.View>
     </Pressable>
   );
 };
 
+/** The map pin, at whatever size its container gives it. */
+function PinArt() {
+  return (
+    <Svg width="100%" height="100%" viewBox={`0 0 ${PIN_VB_W} ${PIN_VB_H}`}>
+      <Defs>
+        <LinearGradient id="pnPin" x1="0" y1="0" x2="0.85" y2="1">
+          <Stop offset="0" stopColor="#FFE08A" />
+          <Stop offset="0.45" stopColor={colors.logoAmber} />
+          <Stop offset="1" stopColor="#D4890B" />
+        </LinearGradient>
+        <RadialGradient id="pnPinGlow" cx="50%" cy="34%" r="52%">
+          <Stop offset="0" stopColor={colors.logoAmber} stopOpacity="0.45" />
+          <Stop offset="1" stopColor={colors.logoAmber} stopOpacity="0" />
+        </RadialGradient>
+      </Defs>
+      <Ellipse cx={38} cy={38} rx={38} ry={38} fill="url(#pnPinGlow)" />
+      <Path d={PIN_PATH} fill="url(#pnPin)" />
+      {/* Lit edge up the near side -- what makes it read as a solid. */}
+      <Path
+        d="M9,54 C3,45 3,28 13,16 C18,10 25,6 32,4"
+        stroke="#FFF3CE"
+        strokeOpacity={0.6}
+        strokeWidth={4}
+        fill="none"
+        strokeLinecap="round"
+      />
+      <Ellipse cx={38} cy={36} rx={14} ry={14} fill="#0A0B0F" />
+    </Svg>
+  );
+}
+
 const styles = StyleSheet.create({
-  field: { backgroundColor: colors.logoAmber },
-  tile: {
+  field: { backgroundColor: colors.background },
+  scene: {
     position: 'absolute',
-    left: TILE_LEFT,
-    top: TILE_TOP,
-    width: TILE_PX,
-    height: TILE_PX,
+    left: 0,
+    top: 0,
+    width: SCREEN_W,
+    height: SCENE_PX_H,
   },
-  tileLayer: { position: 'absolute', left: 0, top: 0, width: TILE_PX, height: TILE_PX },
+  sceneClip: {
+    position: 'absolute',
+    left: 0,
+    top: 0,
+    width: SCREEN_W,
+    height: SCENE_PX_H,
+    overflow: 'hidden',
+  },
   car: {
     position: 'absolute',
-    left: (TILE_PX - CAR_W * U) / 2,
-    top: (TILE_PX - CAR_L * U) / 2,
-    width: CAR_W * U,
-    height: CAR_L * U,
+    left: CAR_X * U - CAR_W / 2,
+    top: CAR_REST_Y * U - CAR_LEN / 2,
+    width: CAR_W,
+    height: CAR_LEN,
+  },
+  brand: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    bottom: BRAND_BOTTOM,
+    alignItems: 'center',
   },
   wordmark: {
-    position: 'absolute',
-    left: (SCREEN_W - WORDMARK_W) / 2,
-    top: TILE_TOP + TILE_PX + Math.round(TILE_PX * 0.05),
-    width: WORDMARK_W,
-    height: WORDMARK_H,
+    fontFamily: 'Inter_800ExtraBold',
+    fontSize: WORD_SIZE,
+    color: colors.textPrimary,
+    textShadowColor: 'rgba(251, 177, 18, 0.35)',
+    textShadowOffset: { width: 0, height: 0 },
+    textShadowRadius: 16,
   },
+  wordmarkAccent: { color: colors.logoAmber },
+  tagline: {
+    marginTop: Math.round(WORD_SIZE * 0.3),
+    fontFamily: 'Inter_500Medium',
+    fontSize: Math.round(WORD_SIZE * 0.3),
+    letterSpacing: Math.round(WORD_SIZE * 0.3) / 2.6,
+    color: 'rgba(245, 246, 248, 0.86)',
+  },
+  barTrack: {
+    marginTop: Math.round(WORD_SIZE * 0.95),
+    width: BAR_W,
+    height: 4,
+    borderRadius: 2,
+    backgroundColor: 'rgba(245, 246, 248, 0.14)',
+    overflow: 'hidden',
+  },
+  barFill: {
+    width: BAR_W,
+    height: 4,
+    borderRadius: 2,
+    backgroundColor: colors.logoAmber,
+  },
+  steps: {
+    marginTop: Math.round(WORD_SIZE * 0.62),
+    fontFamily: 'Inter_600SemiBold',
+    fontSize: Math.round(WORD_SIZE * 0.25),
+    letterSpacing: Math.round(WORD_SIZE * 0.25) / 2.2,
+    color: 'rgba(245, 246, 248, 0.5)',
+  },
+  stepDot: { color: colors.logoAmber },
 });

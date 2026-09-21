@@ -1,10 +1,8 @@
 import React, { useState } from 'react';
 import {
-  ActivityIndicator,
   Image,
   KeyboardAvoidingView,
   Platform,
-  Pressable,
   ScrollView,
   StyleSheet,
   Text,
@@ -13,10 +11,11 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { Button } from '../../components/Button';
-import { GoogleIcon } from '../../components/GoogleIcon';
+import { BrandFooter } from '../../components/BrandFooter';
+import { SignInHero } from '../../components/SignInHero';
 import { TextField } from '../../components/TextField';
 import { useTranslation } from '../../i18n';
-import { colors, radius, spacing, typography } from '../../theme';
+import { colors, fontFamily, spacing, typography } from '../../theme';
 import { RootStackParamList } from '../../navigation/types';
 import { isSupabaseConfigured, supabase } from '../../data/supabaseClient';
 import { signInWithGoogle } from '../../utils/googleAuth';
@@ -103,6 +102,11 @@ export function SignInScreen({ navigation }: Props) {
 
   return (
     <SafeAreaView style={styles.container} edges={['top', 'bottom']}>
+      {/* Outside the ScrollView on purpose: as a content-container child its
+          negative offset would be clipped on Android, and it's a backdrop
+          rather than part of the form's flow. */}
+      <SignInHero width={160} height={175} style={styles.hero} />
+
       <KeyboardAvoidingView
         style={styles.flex}
         behavior={Platform.OS === 'ios' ? 'padding' : undefined}
@@ -117,28 +121,17 @@ export function SignInScreen({ navigation }: Props) {
             resizeMode="contain"
             accessibilityLabel="ParkNext"
           />
-
           <Text style={styles.title}>{t('signIn.title')}</Text>
           <Text style={styles.subtitle}>{t('signIn.subtitle')}</Text>
 
-          <Pressable
+          {/* White needs no halo to win attention — the screen's one light
+              source sits behind the amber CTA instead. */}
+          <Button
+            variant="google"
+            label={t('auth.continueWithGoogle')}
             onPress={handleGoogleSignIn}
-            disabled={isGoogleSigningIn}
-            style={({ pressed }) => [
-              styles.googleButton,
-              pressed && styles.googleButtonPressed,
-              isGoogleSigningIn && styles.googleButtonDisabled,
-            ]}
-          >
-            {isGoogleSigningIn ? (
-              <ActivityIndicator color={colors.textPrimary} />
-            ) : (
-              <>
-                <GoogleIcon size={20} />
-                <Text style={styles.googleButtonText}>{t('auth.continueWithGoogle')}</Text>
-              </>
-            )}
-          </Pressable>
+            loading={isGoogleSigningIn}
+          />
 
           <View style={styles.dividerRow}>
             <View style={styles.dividerLine} />
@@ -149,6 +142,7 @@ export function SignInScreen({ navigation }: Props) {
           <View style={styles.fieldSpacing}>
             <TextField
               label={t('auth.emailLabel')}
+              icon="mail-outline"
               placeholder="priya.sharma@gmail.com"
               value={email}
               onChangeText={setEmail}
@@ -162,12 +156,14 @@ export function SignInScreen({ navigation }: Props) {
           <View style={styles.fieldSpacing}>
             <TextField
               label={t('auth.passwordLabel')}
+              icon="lock-closed-outline"
               placeholder="••••••••"
               value={password}
               onChangeText={setPassword}
               autoCapitalize="none"
               autoComplete="password"
               secureTextEntry
+              secureToggle
             />
           </View>
 
@@ -183,14 +179,20 @@ export function SignInScreen({ navigation }: Props) {
           <Button
             label={t('signIn.submit')}
             onPress={handleSignIn}
+            trailingIcon="arrow-forward"
             disabled={!email || !password || isSubmitting}
             loading={isSubmitting}
           />
           <Text style={styles.footerLinkRow}>
-            New here?{' '}
+            {t('signIn.newHere')}{' '}
             <Text style={styles.footerLink} onPress={() => navigation.navigate('SignUp')}>{t('signIn.createAccount')}</Text>
           </Text>
         </View>
+
+        {/* Left untranslated on purpose: this is part of the brand lock-up,
+            like the wordmark above it — and letterspaced Devanagari breaks
+            the shirorekha, so a Hindi version couldn't keep the same form. */}
+        <BrandFooter height={112} />
       </KeyboardAvoidingView>
     </SafeAreaView>
   );
@@ -209,46 +211,37 @@ const styles = StyleSheet.create({
     paddingTop: spacing.lg,
     flexGrow: 1,
   },
+  hero: {
+    position: 'absolute',
+    // Bleeds off the right edge so it reads as a window onto a scene rather
+    // than a sticker dropped into the corner.
+    right: 0,
+    top: 25,
+  },
   logoMark: {
-    // 1400 x 271 artwork, so the height follows from the width.
-    width: 168,
-    height: 33,
-    marginBottom: spacing.lg,
+    // 1400 x 266 artwork, so the height follows from the width.
+    width: 180,
+    height: 34,
+    marginBottom: spacing.xxl,
+  },
+  brandTagline: {
+    ...typography.body,
+    color: colors.textSecondary,
+    marginTop: spacing.xxs,
+    marginBottom: spacing.xl,
   },
   title: {
-    ...typography.h1,
+    ...typography.display,
     color: colors.textPrimary,
-    marginBottom: spacing.xs,
+    marginBottom: spacing.xxs,
   },
   subtitle: {
     ...typography.body,
     color: colors.textSecondary,
-    marginBottom: spacing.lg,
+    marginBottom: spacing.xl,
   },
   fieldSpacing: {
     marginTop: spacing.sm,
-  },
-  googleButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: spacing.sm,
-    minHeight: 56,
-    borderRadius: radius.full,
-    borderWidth: 1.5,
-    borderColor: colors.surfaceBorder,
-    backgroundColor: colors.surface,
-  },
-  googleButtonPressed: {
-    backgroundColor: colors.surfaceElevated,
-    borderColor: colors.primary,
-  },
-  googleButtonDisabled: {
-    opacity: 0.7,
-  },
-  googleButtonText: {
-    ...typography.buttonLabel,
-    color: colors.textPrimary,
   },
   dividerRow: {
     flexDirection: 'row',
@@ -281,12 +274,13 @@ const styles = StyleSheet.create({
     paddingBottom: spacing.md,
   },
   footerLinkRow: {
-    ...typography.caption,
-    color: colors.textMuted,
+    ...typography.body,
+    color: colors.textSecondary,
     textAlign: 'center',
     marginTop: spacing.sm,
   },
   footerLink: {
+    fontFamily: fontFamily.semiBold,
     color: colors.primary,
   },
 });

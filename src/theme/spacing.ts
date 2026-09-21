@@ -22,6 +22,8 @@ export const radius = {
   md: 12,
   lg: 16,
   xl: 24,
+  /** Hero surfaces — the big card a screen is built around. */
+  xxl: 28,
   full: 999,
 } as const;
 

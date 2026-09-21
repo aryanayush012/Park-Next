@@ -10,7 +10,10 @@ type Glow = Pick<
   'shadowColor' | 'shadowOffset' | 'shadowOpacity' | 'shadowRadius' | 'elevation'
 >;
 
-export const elevation: Record<'none' | 'glowPrimary' | 'glowSecondary' | 'card', Glow> = {
+export const elevation: Record<
+  'none' | 'glowPrimary' | 'glowSecondary' | 'glowAmbient' | 'card' | 'cardRaised',
+  Glow
+> = {
   none: {
     shadowColor: colors.black,
     shadowOffset: { width: 0, height: 0 },
@@ -32,11 +35,31 @@ export const elevation: Record<'none' | 'glowPrimary' | 'glowSecondary' | 'card'
     shadowRadius: 16,
     elevation: 8,
   },
+  /**
+   * A wide, faint amber halo — atmosphere rather than lift. For the lamp
+   * bloom behind a hero element, where `glowPrimary`'s tight offset shadow
+   * would read as a hard drop shadow instead of light in the air.
+   */
+  glowAmbient: {
+    shadowColor: colors.primary,
+    shadowOffset: { width: 0, height: 0 },
+    shadowOpacity: 0.28,
+    shadowRadius: 32,
+    elevation: 12,
+  },
   card: {
     shadowColor: colors.black,
     shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.25,
     shadowRadius: 12,
     elevation: 4,
+  },
+  /** The one card a screen is built around, when it needs to sit above its peers. */
+  cardRaised: {
+    shadowColor: colors.black,
+    shadowOffset: { width: 0, height: 10 },
+    shadowOpacity: 0.4,
+    shadowRadius: 24,
+    elevation: 10,
   },
 };

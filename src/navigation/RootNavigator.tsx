@@ -1,6 +1,7 @@
 import React from 'react';
-import { ActivityIndicator, StyleSheet, View } from 'react-native';
+import { StyleSheet, View } from 'react-native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
+import { PinLoader } from '../components/PinLoader';
 import { RootStackParamList } from './types';
 import { AuthProvider, useAuth } from './AuthContext';
 import { RoleProvider } from './RoleContext';
@@ -70,7 +71,7 @@ function RootNavigatorInner() {
     // moment it takes to check AsyncStorage for an existing session.
     return (
       <View style={styles.loadingContainer}>
-        <ActivityIndicator color={colors.primary} size="large" />
+        <PinLoader size={72} />
       </View>
     );
   }

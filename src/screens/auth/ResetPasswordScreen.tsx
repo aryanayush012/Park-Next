@@ -10,6 +10,7 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Button } from '../../components/Button';
+import { BrandFooter } from '../../components/BrandFooter';
 import { TextField } from '../../components/TextField';
 import { useTranslation } from '../../i18n';
 import { colors, spacing, typography } from '../../theme';
@@ -104,6 +105,7 @@ export function ResetPasswordScreen() {
             autoCapitalize="none"
             autoComplete="password-new"
             secureTextEntry
+            secureToggle
             errorText={showPasswordError ? t('auth.passwordTooShort') : undefined}
           />
           <View style={styles.fieldSpacing}>
@@ -119,6 +121,7 @@ export function ResetPasswordScreen() {
               autoCapitalize="none"
               autoComplete="password-new"
               secureTextEntry
+              secureToggle
               errorText={showConfirmError ? t('auth.passwordsDontMatch') : undefined}
             />
           </View>
@@ -137,6 +140,7 @@ export function ResetPasswordScreen() {
             {isCancelling ? t('reset.cancelling') : t('reset.backToSignIn')}
           </Text>
         </View>
+        <BrandFooter height={92} />
       </KeyboardAvoidingView>
     </SafeAreaView>
   );
@@ -156,7 +160,7 @@ const styles = StyleSheet.create({
     flexGrow: 1,
   },
   title: {
-    ...typography.h1,
+    ...typography.display,
     color: colors.textPrimary,
     marginBottom: spacing.xs,
   },

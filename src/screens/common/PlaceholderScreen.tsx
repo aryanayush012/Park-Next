@@ -1,6 +1,7 @@
 import React from 'react';
 import { StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { BrandFooter } from '../../components/BrandFooter';
 import { colors, spacing, typography } from '../../theme';
 
 export interface PlaceholderScreenProps {
@@ -20,6 +21,7 @@ export function PlaceholderScreen({ title, message }: PlaceholderScreenProps) {
         <Text style={styles.title}>{title}</Text>
         <Text style={styles.message}>{message}</Text>
       </View>
+      <BrandFooter height={104} />
     </SafeAreaView>
   );
 }

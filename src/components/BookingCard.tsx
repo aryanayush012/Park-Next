@@ -1,6 +1,6 @@
 import React from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
-import { Ionicons } from '@expo/vector-icons';
+import { IconActionButton } from './IconActionButton';
 import { colors, elevation, radius, spacing, typography } from '../theme';
 import { useTranslation } from '../i18n';
 import { StarRating } from './StarRating';
@@ -67,25 +67,17 @@ export function BookingCard({
 
         <View style={styles.actions}>
           {onCall ? (
-            <Pressable
-            onPress={onCall}
-            hitSlop={8}
-            accessibilityRole="button"
-            accessibilityLabel={t('common.call')}
-            style={styles.actionButton}
-            >
-              <Ionicons name="call-outline" size={18} color={colors.primary} />
-            </Pressable>
+            <IconActionButton
+              icon="call"
+              onPress={onCall}
+              accessibilityLabel={t('common.call')}
+            />
           ) : null}
-          <Pressable
+          <IconActionButton
+            icon="navigate"
             onPress={onNavigate}
-            hitSlop={8}
-            accessibilityRole="button"
             accessibilityLabel={t('common.navigateMaps')}
-            style={styles.actionButton}
-          >
-            <Ionicons name="navigate-outline" size={18} color={colors.primary} />
-          </Pressable>
+          />
         </View>
       </View>
 
@@ -126,13 +118,18 @@ function Fact({
 const styles = StyleSheet.create({
   card: {
     backgroundColor: colors.surface,
-    borderRadius: radius.lg,
+    borderRadius: radius.xl,
     borderWidth: 1,
     borderColor: colors.surfaceBorder,
     padding: spacing.md,
+    ...elevation.card,
   },
   cardPressed: {
-    opacity: 0.9,
+    // Scale rather than fade: a card that dims reads as disabled, whereas
+    // one that dips reads as pressed. Same reason the listing card does it.
+    opacity: 1,
+    transform: [{ scale: 0.985 }],
+    borderColor: colors.primary,
   },
   headerRow: {
     marginTop: spacing.xs,
@@ -157,14 +154,6 @@ const styles = StyleSheet.create({
   actions: {
     flexDirection: 'row',
     gap: spacing.lg,
-  },
-  actionButton: {
-    width: 50,
-    height:50,
-    borderRadius: radius.full,
-    backgroundColor: colors.primaryMuted,
-    alignItems: 'center',
-    justifyContent: 'center',
   },
   divider: {
     height: 1,

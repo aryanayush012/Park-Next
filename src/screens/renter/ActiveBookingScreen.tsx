@@ -1,25 +1,49 @@
 import React, { useCallback, useEffect, useState } from 'react';
-import { ActivityIndicator, Linking, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
+import {
+  ActivityIndicator,
+  Image,
+  Linking,
+  Pressable,
+  ScrollView,
+  Share,
+  StyleSheet,
+  Text,
+  TextInput,
+  View,
+} from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { ScreenHeader } from '../../components/ScreenHeader';
+import { BrandFooter } from '../../components/BrandFooter';
+import { BookingConfirmedOverlay } from '../../components/BookingConfirmedOverlay';
+import { PinLoader } from '../../components/PinLoader';
+import { WaitingPinArt } from '../../components/WaitingPinArt';
 import { Ionicons } from '@expo/vector-icons';
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
+import { ArrivalCode } from '../../components/ArrivalCode';
 import { Button } from '../../components/Button';
+import { DataColumns } from '../../components/DataColumns';
+import { GoogleMapsIcon } from '../../components/GoogleMapsIcon';
+import { MapView } from '../../components/MapView';
 import { StarRating } from '../../components/StarRating';
 import { StarRatingInput } from '../../components/StarRatingInput';
 import { StatusBadge } from '../../components/StatusBadge';
 import { useTranslation } from '../../i18n';
-import { colors, radius, spacing, typography } from '../../theme';
+import { colors, fontFamily, radius, spacing, typography } from '../../theme';
 import { SharedBookingParamList } from '../../navigation/types';
 import { dataSource } from '../../data/dataSource';
 import { useAuth } from '../../navigation/AuthContext';
 import { useRealtimeTable } from '../../hooks/useRealtimeTable';
 import {
   bookingStatusToBadgeStatus,
+  formatDateTimeRange,
   formatElapsedClock,
   formatRelativeDate,
   formatTimeFromISO,
+  formatTimeRangeShort,
+  haversineDistanceKm,
+  estimateDrivingMinutes,
 } from '../../utils/format';
+import { useCurrentLocation } from '../../hooks/useCurrentLocation';
 import { openDirectionsInMaps } from '../../utils/maps';
 import { expireIfNoShow } from '../../utils/noShow';
 import { autoCheckoutIfOverLimit, isOverOvertimeCap } from '../../utils/overtimeAutoCheckout';
@@ -29,6 +53,7 @@ import {
   scheduleBookingEndingSoonReminder,
 } from '../../utils/notifications';
 import { Booking, Listing, RenterProfile, Review } from '../../types';
+import { IconActionButton } from '../../components/IconActionButton';
 
 type Props = NativeStackScreenProps<SharedBookingParamList, 'ActiveBooking'>;
 
@@ -58,9 +83,30 @@ const RENEWAL_CHECK_MS = 60 * 1000;
 // isn't blocked from checking in right at the door.
 const EARLY_ARRIVAL_CODE_REVEAL_MS = 15 * 60 * 1000;
 
+/**
+ * A zoom level that keeps both the car and the spot roughly in frame,
+ * chosen from how far apart they are.
+ *
+ * Deliberately a lookup table rather than Leaflet's own fitBounds. Fitting
+ * needs the map container's real pixel size, which only exists inside the
+ * WebView, and driving the camera from out here through that boundary was
+ * the source of a long tail of framing bugs. A booking is nearly always a
+ * few kilometres away, so a handful of distance bands is both predictable
+ * and good enough — and it cannot silently collapse the way a fit can.
+ */
+function zoomForDistance(km: number): number {
+  if (km < 1) return 14;
+  if (km < 3) return 13;
+  if (km < 7) return 12;
+  if (km < 15) return 11;
+  if (km < 40) return 10;
+  if (km < 120) return 8;
+  return 6;
+}
+
 export function ActiveBookingScreen({ navigation, route }: Props) {
   const { t } = useTranslation();
-  const { bookingId } = route.params;
+  const { bookingId, justBooked = false } = route.params;
   const { userId } = useAuth();
   const [booking, setBooking] = useState<Booking | null>(null);
   const [listing, setListing] = useState<Listing | null>(null);
@@ -74,6 +120,15 @@ export function ActiveBookingScreen({ navigation, route }: Props) {
   const [comment, setComment] = useState('');
   const [submittingReview, setSubmittingReview] = useState(false);
   const [reviewSubmitError, setReviewSubmitError] = useState<string | null>(null);
+  const [isCancelling, setIsCancelling] = useState(false);
+  // While a finger is down on the map, the page stops scrolling so the map
+  // can pan — see `MapView`'s `onTouchActiveChange`.
+  const [mapPanning, setMapPanning] = useState(false);
+  // Held in state, not read from the route param directly, so the
+  // celebration plays exactly once — a re-render (or coming back to this
+  // screen) must not replay it.
+  const [celebrating, setCelebrating] = useState(justBooked);
+  const { location: currentLocation } = useCurrentLocation();
 
   useEffect(() => {
     dataSource.getBookingById(bookingId).then(async (result) => {
@@ -225,10 +280,159 @@ export function ActiveBookingScreen({ navigation, route }: Props) {
     }
   };
 
+  // Same object-identity care as Booking Confirmation: MapView re-fits its
+  // bounds whenever `route` changes by reference, and an inline literal
+  // would hand it a new one on every render — including the renders
+  // `onRouteResolved` itself causes.
+
+  const handleCancelRequest = async () => {
+    setIsCancelling(true);
+    try {
+      const updated = await dataSource.cancelBooking(bookingId);
+      setBooking(updated);
+    } finally {
+      setIsCancelling(false);
+    }
+  };
+
+  const handleBrowseOtherSpots = () => {
+    navigation.popToTop();
+  };
+
   if (!booking || !listing) {
     return (
       <SafeAreaView style={styles.loadingContainer}>
-        <Text style={styles.loadingText}>{t('common.loadingBooking')}</Text>
+        <PinLoader label={t('common.loadingBooking')} />
+      </SafeAreaView>
+    );
+  }
+
+  const canGoBack = navigation.canGoBack();
+
+  // Ported from the old Booking Confirmation screen, which this screen
+  // replaced: a booking's whole life now lives in one place, so the states
+  // before it is accepted have to live here too.
+  if (booking.status === 'pending') {
+    return (
+      <SafeAreaView style={styles.container} edges={['top', 'bottom']}>
+        <ScreenHeader onBack={canGoBack ? () => navigation.goBack() : undefined} />
+        <ScrollView
+          contentContainerStyle={styles.centeredStateContent}
+          showsVerticalScrollIndicator={false}
+        >
+          <WaitingPinArt />
+
+          {/* Two-tone: the plain half states the situation, the amber half
+              names what is actually being waited on. */}
+          <Text style={styles.waitingTitle}>
+            {t('confirm.waitingFor')} <Text style={styles.waitingTitleAccent}>{t('confirm.hostApproval')}</Text>
+          </Text>
+          <Text style={styles.waitingBody}>{t('confirm.requestSent')}</Text>
+          <Text style={styles.waitingBody}>
+            {t('confirm.hostRespondsBy')}{' '}
+            <Text style={styles.waitingBodyAccent}>
+              {formatTimeFromISO(booking.responseDeadline)}
+            </Text>
+          </Text>
+
+          <View style={[styles.card, styles.stretchCard]}>
+            <View style={styles.spotRow}>
+              {listing.photos[0] ? (
+                <Image source={{ uri: listing.photos[0] }} style={styles.pendingThumb} />
+              ) : (
+                <View style={[styles.pendingThumb, styles.spotThumbEmpty]}>
+                  <Ionicons name="car-outline" size={22} color={colors.textMuted} />
+                </View>
+              )}
+              <View style={styles.spotTextBlock}>
+                <Text style={styles.cardTitle} numberOfLines={1}>
+                  {listing.title}
+                </Text>
+                <View style={styles.spotAddressRow}>
+                  <Ionicons name="location-sharp" size={13} color={colors.textSecondary} style={{marginTop: 3}}/>
+                  <Text style={styles.spotAddress} numberOfLines={2}>
+                    {listing.address}
+                  </Text>
+                </View>
+              </View>
+            </View>
+
+            <View style={styles.cardDivider} />
+
+            {/* Label stacked over value: a date range is too long to sit
+                opposite its own label on one line. */}
+            <View style={styles.pendingFactRow}>
+              <Ionicons name="calendar-outline" size={20} color={colors.primary} />
+              <View style={styles.pendingFactText}>
+                <Text style={styles.pendingFactLabel}>{t('common.dateTime')}</Text>
+                <Text style={styles.pendingFactValue}>
+                  {formatDateTimeRange(booking.startTime, booking.endTime)}
+                </Text>
+              </View>
+            </View>
+
+            <View style={styles.cardDivider} />
+
+            <SummaryRow
+              icon="card-outline"
+              label={
+                booking.pricingModel === 'metered'
+                  ? t('common.estimatedTotal')
+                  : t('common.totalPrice')
+              }
+              value={`${listing.currency}${booking.totalPrice}`}
+              highlight
+            />
+          </View>
+        </ScrollView>
+
+        <View style={styles.footer}>
+          <Button
+            label={t('confirm.cancelRequest')}
+            variant="secondary"
+            onPress={handleCancelRequest}
+            loading={isCancelling}
+          />
+        </View>
+        <BrandFooter height={84} />
+      </SafeAreaView>
+    );
+  }
+
+  if (
+    booking.status === 'declined' ||
+    booking.status === 'expired' ||
+    booking.status === 'cancelled'
+  ) {
+    const isCancelledByMe = booking.status === 'cancelled';
+    const isDeclined = booking.status === 'declined';
+    return (
+      <SafeAreaView style={styles.container} edges={['top', 'bottom']}>
+        <ScreenHeader onBack={canGoBack ? () => navigation.goBack() : undefined} />
+        <View style={styles.centeredStateContent}>
+          <View style={styles.declinedIconWrap}>
+            <Ionicons name="close" size={26} color={colors.error} />
+          </View>
+          <Text style={styles.stateTitle}>
+            {isCancelledByMe
+              ? t('confirm.requestCancelled')
+              : isDeclined
+              ? t('confirm.requestDeclined')
+              : "Host didn't respond in time"}
+          </Text>
+          <Text style={styles.stateSubtitle}>
+            {isCancelledByMe
+              ? `You cancelled your request for ${listing.title}.`
+              : isDeclined
+              ? `The host isn't able to accept your request for ${listing.title}. You haven't been charged — try another spot.`
+              : `The host for ${listing.title} didn't respond to your request in time. You haven't been charged — try another spot.`}
+          </Text>
+        </View>
+
+        <View style={styles.footer}>
+          <Button label={t('confirm.browseOther')} onPress={handleBrowseOtherSpots} />
+        </View>
+        <BrandFooter height={84} />
       </SafeAreaView>
     );
   }
@@ -306,6 +510,29 @@ export function ActiveBookingScreen({ navigation, route }: Props) {
     openDirectionsInMaps({ latitude: listing.latitude, longitude: listing.longitude });
   };
 
+  // Prefer the real routed numbers once OSRM answers; fall back to a
+  // straight-line estimate so the row isn't blank while that's in flight.
+  // Straight-line distance and a rough drive time from it. Previously this
+  // preferred a routing service's own numbers; with no route drawn there is
+  // nothing to ask, and an as-the-crow-flies figure is honest for a "how
+  // far is it" line.
+  const distanceKm = listing ? haversineDistanceKm(currentLocation, listing) : 0;
+  const distanceMinutes = estimateDrivingMinutes(distanceKm);
+
+  const handleShare = () => {
+    if (!listing) return;
+    // Best-effort: a dismissed sheet rejects on some Android builds, and a
+    // cancelled share is not an error worth surfacing.
+    Share.share({
+      message: t('confirm.shareMessage', {
+        title: listing.title,
+        address: listing.address,
+        code: booking?.verificationCode ?? '—',
+        time: formatDateTimeRange(booking?.startTime ?? '', booking?.endTime ?? ''),
+      }),
+    }).catch(() => {});
+  };
+
   const handleContactHost = () => {
     if (host?.phone) {
       Linking.openURL(`tel:${host.phone}`).catch(() => {});
@@ -314,11 +541,25 @@ export function ActiveBookingScreen({ navigation, route }: Props) {
 
   return (
     <SafeAreaView style={styles.container} edges={['top', 'bottom']}>
-      <ScreenHeader onBack={navigation.canGoBack() ? () => navigation.goBack() : undefined} />
+      <ScreenHeader
+        onBack={navigation.canGoBack() ? () => navigation.goBack() : undefined}
+        action={
+          <Pressable
+            onPress={handleShare}
+            accessibilityRole="button"
+            accessibilityLabel={t('confirm.share')}
+            style={({ pressed }) => [styles.sharePill, pressed && styles.sharePillPressed]}
+          >
+            <Ionicons name="share-social-outline" size={16} color={colors.textPrimary} />
+            <Text style={styles.shareLabel}>{t('confirm.share')}</Text>
+          </Pressable>
+        }
+      />
       <ScrollView
         style={styles.scrollArea}
         contentContainerStyle={styles.content}
         showsVerticalScrollIndicator={false}
+        scrollEnabled={!mapPanning}
       >
         <View style={styles.badgeRow}>
           <StatusBadge status={bookingStatusToBadgeStatus(booking.status)} />
@@ -331,14 +572,17 @@ export function ActiveBookingScreen({ navigation, route }: Props) {
               <Text style={styles.stateSubtitle}>
                 Show this code to the host when you arrive at {listing.title}. 
               </Text>
-              <View style={styles.codeCard}>
-                <Text style={styles.codeLabel}>{t('active.arrivalCode')}</Text>
-                <Text style={styles.codeText}>{booking.verificationCode}</Text>
-              </View>
-              <View style={styles.waitingRow}>
+              <ArrivalCode
+                code={booking.verificationCode}
+                label={t('active.arrivalCode')}
+                hint={t('confirm.showAtEntry')}
+                copyLabel={t('confirm.copyCode')}
+                style={styles.arrivalCode}
+              />
+              {/* <View style={styles.waitingRow}>
                 <ActivityIndicator color={colors.secondary} />
                 <Text style={styles.waitingText}>{t('active.waitingHost')}</Text>
-              </View>
+              </View> */}
             </View>
           ) : (
             <View style={styles.centerBlock}>
@@ -426,7 +670,54 @@ export function ActiveBookingScreen({ navigation, route }: Props) {
         ) : null}
 
         <View style={styles.card}>
-          <Text style={styles.cardTitle}>{listing.title}</Text>
+          <View style={styles.spotRow}>
+            {listing.photos[0] ? (
+              <Image source={{ uri: listing.photos[0] }} style={styles.spotThumb} />
+            ) : (
+              <View style={[styles.spotThumb, styles.spotThumbEmpty]}>
+                <Ionicons name="car-outline" size={22} color={colors.textMuted} />
+              </View>
+            )}
+            <View style={styles.spotTextBlock}>
+              <Text style={styles.cardTitle} numberOfLines={1}>
+                {listing.title}
+              </Text>
+              <View style={styles.spotAddressRow}>
+                <Ionicons name="location" size={13} color={colors.textSecondary} style={{marginTop: 3}}/>
+                <Text style={styles.spotAddress} numberOfLines={2}>
+                  {listing.address}
+                </Text>
+              </View>
+              {listing.ratingCount > 0 ? (
+                <View style={styles.spotRatingRow}>
+                  <StarRating rating={listing.rating} size={13} />
+                  <Text style={styles.spotRatingText}>
+                    {listing.rating.toFixed(1)} ({listing.ratingCount})
+                  </Text>
+                </View>
+              ) : null}
+            </View>
+          </View>
+
+          <View style={styles.cardDivider} />
+
+          <DataColumns
+            columns={[
+              {
+                icon: 'calendar-outline',
+                label: t('common.date'),
+                value: formatRelativeDate(booking.startTime),
+              },
+              {
+                icon: 'time-outline',
+                label: t('common.time'),
+                value: formatTimeRangeShort(booking.startTime, booking.endTime),
+              },
+            ]}
+            style={styles.dataColumns}
+          />
+
+          <View style={styles.cardDivider} />
 
           {booking.checkInAt ? (
             <SummaryRow label={t('active.checkedInAt')} value={formatTimeFromISO(booking.checkInAt)} />
@@ -437,14 +728,7 @@ export function ActiveBookingScreen({ navigation, route }: Props) {
 
           {booking.status !== 'no_show' ? (
             <>
-              <SummaryRow
-                label={t('active.rate')}
-                value={
-                  booking.pricingModel === 'metered'
-                    ? `${listing.currency}${listing.pricePerHour}/hr`
-                    : t('common.flatRate')
-                }
-              />
+            
 
               {overtimeMinutes > 0 ? (
                 <SummaryRow
@@ -454,6 +738,7 @@ export function ActiveBookingScreen({ navigation, route }: Props) {
               ) : null}
 
               <SummaryRow
+                icon="card-outline"
                 label={booking.status === 'completed' ? t('active.amountOwed') : t('active.currentEstimate')}
                 value={`${listing.currency}${currentEstimate}`}
                 highlight
@@ -474,16 +759,64 @@ export function ActiveBookingScreen({ navigation, route }: Props) {
           ) : null}
         </View>
 
+        {/* Only while still on the way: once checked in you are standing on
+            the spot, and a route to where you already are is noise. */}
+        {/* Where the spot is. No route drawn: navigating there is Google
+            Maps' job, and the button below hands off to it. */}
+        {booking.status === 'booked' ? (
+          <View style={styles.mapCard}>
+            <MapView
+              latitude={(currentLocation.latitude + listing.latitude) / 2}
+              longitude={(currentLocation.longitude + listing.longitude) / 2}
+              zoom={zoomForDistance(distanceKm)}
+              markers={[
+                {
+                  id: listing.id,
+                  latitude: listing.latitude,
+                  longitude: listing.longitude,
+                  label: `${listing.currency}${listing.pricePerHour}`,
+                },
+              ]}
+              userLocation={currentLocation}
+              onTouchActiveChange={setMapPanning}
+              style={styles.map}
+            />
+            <View style={styles.routeRow}>
+              <Ionicons name="location" size={18} color={colors.primary} />
+              <View style={styles.routeText}>
+                <Text style={styles.routeDistance}>
+                  {distanceMinutes} mins · {distanceKm.toFixed(1)} km {t('active.away')}
+                </Text>
+              </View>
+            </View>
+          </View>
+        ) : null}
+
         {host ? (
           <View style={styles.hostCard}>
-            <View style={styles.hostAvatar}>
-              <Ionicons name="person" size={20} color={colors.textMuted} />
-            </View>
+            {host.avatarUrl ? (
+              <Image source={{ uri: host.avatarUrl }} style={styles.hostAvatar} />
+            ) : (
+              <View style={[styles.hostAvatar, styles.hostAvatarEmpty]}>
+                <Ionicons name="person" size={20} color={colors.textMuted} />
+              </View>
+            )}
             <View style={styles.hostTextBlock}>
+              <Text style={styles.hostLabel}>{t('confirm.parkingHost')}</Text>
               <Text style={styles.hostName}>{host.name}</Text>
+              {/* A rating of 0 across 0 reviews is not a bad score, it's no
+                  score — so the row is dropped rather than shown as zero. */}
+              {host.ratingCount > 0 ? (
+                <View style={styles.hostRatingRow}>
+                  <StarRating rating={host.rating} size={13} />
+                  <Text style={styles.hostRatingText}>
+                    {host.rating.toFixed(1)} ({host.ratingCount})
+                  </Text>
+                </View>
+              ) : null}
               <Text style={styles.hostPhone}>{host.phone}</Text>
             </View>
-            <Button label={t('common.call')} variant="secondary" onPress={handleContactHost} style={styles.callButton} />
+            <IconActionButton icon="call" onPress={handleContactHost} style={styles.callButton} accessibilityLabel={t('common.call')}/>
           </View>
         ) : null}
 
@@ -531,10 +864,13 @@ export function ActiveBookingScreen({ navigation, route }: Props) {
       </ScrollView>
 
       <View style={styles.footer}>
+        {/* While still on the way this is the only thing to do, so it takes
+            the amber — same treatment it gets on Booking Confirmation. */}
         {booking.status === 'booked' ? (
           <Button
             label={t('common.navigateMaps')}
-            variant="secondary"
+            leadingNode={<GoogleMapsIcon size={30} />}
+            trailingIcon="arrow-forward"
             onPress={handleNavigate}
             style={styles.navigateButton}
           />
@@ -549,6 +885,17 @@ export function ActiveBookingScreen({ navigation, route }: Props) {
           <Button label={t('common.done')} onPress={handleDone} />
         ) : null}
       </View>
+
+      {/* Last child so it covers the screen it is celebrating. Plays once
+          and dismisses itself; arriving here any other way never sets
+          `justBooked`, so the plain screen is what you get on a revisit. */}
+      {celebrating ? (
+        <BookingConfirmedOverlay
+          title={t('confirm.confirmed')}
+          subtitle={t('confirm.reserved')}
+          onDone={() => setCelebrating(false)}
+        />
+      ) : null}
     </SafeAreaView>
   );
 }
@@ -557,13 +904,24 @@ function SummaryRow({
   label,
   value,
   highlight,
+  icon,
 }: {
   label: string;
   value: string;
   highlight?: boolean;
+  /** Optional glyph ahead of the label, for the rows worth picking out. */
+  icon?: keyof typeof Ionicons.glyphMap;
 }) {
   return (
     <View style={styles.summaryRow}>
+      {icon ? (
+        <Ionicons
+          name={icon}
+          size={16}
+          color={highlight ? colors.primary : colors.textSecondary}
+          style={styles.summaryIcon}
+        />
+      ) : null}
       <Text style={styles.summaryLabel}>{label}</Text>
       <Text style={[styles.summaryValue, highlight && styles.summaryValueHighlight]}>{value}</Text>
     </View>
@@ -580,10 +938,6 @@ const styles = StyleSheet.create({
     backgroundColor: colors.background,
     alignItems: 'center',
     justifyContent: 'center',
-  },
-  loadingText: {
-    ...typography.body,
-    color: colors.textSecondary,
   },
   scrollArea: {
     flex: 1,
@@ -613,28 +967,9 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     paddingHorizontal: spacing.md,
   },
-  codeCard: {
+  arrivalCode: {
     marginTop: spacing.md,
-    backgroundColor: colors.surface,
-    borderRadius: radius.lg,
-    borderWidth: 1.5,
-    borderColor: colors.primary,
-    paddingVertical: spacing.md,
-    paddingHorizontal: spacing.xl,
-    alignItems: 'center',
-  },
-  codeLabel: {
-    ...typography.caption,
-    color: colors.textSecondary,
-    marginBottom: spacing.xxs,
-  },
-  codeText: {
-    ...typography.h1,
-    fontSize: 40,
-    // h1 brings lineHeight 38, which clips a 40pt glyph.
-    lineHeight: 52,
-    letterSpacing: 8,
-    color: colors.primary,
+    alignSelf: 'stretch',
   },
   waitingRow: {
     flexDirection: 'row',
@@ -740,16 +1075,27 @@ const styles = StyleSheet.create({
   },
   summaryRow: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
+    alignItems: 'center',
     paddingVertical: spacing.xxs,
+  },
+  summaryIcon: {
+    marginRight: spacing.xxs,
   },
   summaryLabel: {
     ...typography.body,
     color: colors.textSecondary,
+    // Takes the space between the icon and the value rather than relying on
+    // `justifyContent: 'space-between'`. With an icon present that made
+    // three children, and space-between pushed the label into the middle of
+    // the row — floating away from the icon it belongs to.
+    flex: 1,
   },
   summaryValue: {
     ...typography.bodyMedium,
     color: colors.textPrimary,
+    // Long values wrap rather than shove the label out of the row.
+    flexShrink: 1,
+    textAlign: 'right',
   },
   summaryValueHighlight: {
     ...typography.h3,
@@ -759,6 +1105,186 @@ const styles = StyleSheet.create({
     ...typography.caption,
     color: colors.textMuted,
     marginTop: spacing.sm,
+  },
+  /** Shared by the pending and declined states — a centred column that
+   *  fills the viewport but still scrolls when it outgrows it. */
+  centeredStateContent: {
+    flexGrow: 1,
+    paddingHorizontal: spacing.lg,
+    paddingTop: spacing.xl,
+    paddingBottom: spacing.md,
+    alignItems: 'center',
+  },
+  /** The centred column shrinks children to content width; a card wants the
+   *  whole column. */
+  stretchCard: {
+    alignSelf: 'stretch',
+    marginTop: spacing.lg,
+  },
+  waitingTitle: {
+    ...typography.h1,
+    color: colors.textPrimary,
+    textAlign: 'center',
+    marginTop: spacing.xs,
+    marginBottom: spacing.sm,
+  },
+  waitingTitleAccent: {
+    color: colors.primary,
+  },
+  waitingBody: {
+    ...typography.bodyLarge,
+    color: colors.textSecondary,
+    textAlign: 'center',
+  },
+  waitingBodyAccent: {
+    color: colors.primary,
+    fontFamily: fontFamily.semiBold,
+  },
+  pendingThumb: {
+    width: 88,
+    height: 88,
+    borderRadius: radius.md,
+    backgroundColor: colors.surfaceSunken,
+  },
+  /** Label stacked over value, beside the icon — a date range is too long
+   *  to sit opposite its own label on a single line. */
+  pendingFactRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+  },
+  pendingFactText: {
+    flex: 1,
+  },
+  pendingFactLabel: {
+    ...typography.body,
+    color: colors.textSecondary,
+  },
+  pendingFactValue: {
+    ...typography.bodyLarge,
+    color: colors.textPrimary,
+  },
+  declinedIconWrap: {
+    width: 56,
+    height: 56,
+    borderRadius: radius.full,
+    backgroundColor: colors.surface,
+    borderWidth: 1,
+    borderColor: colors.error,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  sharePill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.xxs,
+    paddingHorizontal: spacing.sm,
+    paddingVertical: spacing.xxs,
+    borderRadius: radius.full,
+    borderWidth: 1,
+    borderColor: colors.surfaceBorder,
+    backgroundColor: colors.surface,
+  },
+  sharePillPressed: {
+    borderColor: colors.primary,
+    backgroundColor: colors.surfaceElevated,
+  },
+  shareLabel: {
+    ...typography.bodyMedium,
+    color: colors.textPrimary,
+  },
+  spotRow: {
+    flexDirection: 'row',
+    gap: spacing.sm,
+  },
+  spotThumb: {
+    width: 64,
+    height: 64,
+    borderRadius: radius.md,
+    backgroundColor: colors.surfaceSunken,
+  },
+  spotThumbEmpty: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1,
+    borderColor: colors.surfaceBorder,
+  },
+  spotTextBlock: {
+    flex: 1,
+    justifyContent: 'center',
+    gap: 2,
+  },
+  spotAddressRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: spacing.xxs,
+  },
+  spotAddress: {
+    ...typography.caption,
+    color: colors.textSecondary,
+    flex: 1,
+  },
+  spotRatingRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.xxs,
+    marginTop: 2,
+  },
+  spotRatingText: {
+    ...typography.caption,
+    color: colors.textSecondary,
+  },
+  cardDivider: {
+    height: 1,
+    backgroundColor: colors.hairline,
+    marginVertical: spacing.md,
+  },
+  dataColumns: {
+    marginBottom: spacing.xxs,
+  },
+  hostAvatarEmpty: {
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  hostRatingRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.xxs,
+    marginTop: 1,
+  },
+  hostRatingText: {
+    ...typography.caption,
+    color: colors.textSecondary,
+  },
+  hostLabel: {
+    ...typography.label,
+    color: colors.textSecondary,
+  },
+  mapCard: {
+    marginTop: spacing.md,
+    borderRadius: radius.xl,
+    borderWidth: 1,
+    borderColor: colors.surfaceBorder,
+    backgroundColor: colors.surface,
+    // Clips the map to the card's rounded corners.
+    overflow: 'hidden',
+  },
+  map: {
+    height: 148,
+  },
+  routeRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.xs,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.sm,
+  },
+  routeText: {
+    flex: 1,
+  },
+  routeDistance: {
+    ...typography.bodyMedium,
+    color: colors.textPrimary,
   },
   hostCard: {
     flexDirection: 'row',

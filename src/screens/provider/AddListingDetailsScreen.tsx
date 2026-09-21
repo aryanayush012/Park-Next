@@ -1,9 +1,10 @@
-import React, { useRef, useState } from 'react';
+import React, { useState } from 'react';
 import { Keyboard, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { Button } from '../../components/Button';
+import { BrandFooter } from '../../components/BrandFooter';
 import { TextField } from '../../components/TextField';
 import { SelectableChip } from '../../components/SelectableChip';
 import { MapView } from '../../components/MapView';
@@ -35,17 +36,19 @@ export function AddListingDetailsScreen({ navigation, route }: Props) {
   const [isAddressFocused, setIsAddressFocused] = useState(false);
   const { suggestions: addressSuggestions } = useAddressSuggestions(address);
 
-  // The map needs to be pannable so the user can navigate to their exact
-  // spot before tapping to drop a pin — but it sits inside the form's
-  // ScrollView, and a plain ScrollView will otherwise win the touch and
-  // scroll the whole page instead of letting the map pan. We lock the
-  // ScrollView the instant a touch lands on the map (via setNativeProps,
-  // not React state, so it takes effect before the gesture is recognized —
-  // a state-driven re-render would be a frame too late) and unlock it the
-  // moment that touch ends.
-  const scrollRef = useRef<ScrollView>(null);
-  const lockScroll = () => scrollRef.current?.setNativeProps({ scrollEnabled: false });
-  const unlockScroll = () => scrollRef.current?.setNativeProps({ scrollEnabled: true });
+  // The map has to be pannable so someone can find their exact spot before
+  // dropping a pin, but it sits inside this form's ScrollView, which would
+  // otherwise win every vertical drag and scroll the page instead.
+  //
+  // This used to lock the ScrollView imperatively via `setNativeProps`,
+  // chosen over state on the grounds that a re-render lands a frame later
+  // than the gesture. That reasoning was sound on the old architecture, but
+  // `setNativeProps` is unsupported under Fabric — which this app runs —
+  // so it had quietly become a no-op. State is a frame behind in theory;
+  // in practice a pan needs finger-down *plus* movement past a threshold,
+  // which is longer than one frame. If it ever does feel late, the fix is a
+  // native gesture handler, not a return to setNativeProps.
+  const [mapPanning, setMapPanning] = useState(false);
 
   const handleSelectAddress = (suggestion: AddressSuggestion) => {
     setAddress(suggestion.label);
@@ -97,9 +100,9 @@ export function AddListingDetailsScreen({ navigation, route }: Props) {
       </View>
 
       <ScrollView
-        ref={scrollRef}
         contentContainerStyle={styles.scrollContent}
         showsVerticalScrollIndicator={false}
+        scrollEnabled={!mapPanning}
         // Without this, a ScrollView's default behaviour is to eat the
         // *first* tap on anything inside it just to dismiss the keyboard —
         // so tapping a suggestion row while the Address field is still
@@ -182,27 +185,19 @@ export function AddListingDetailsScreen({ navigation, route }: Props) {
         </View>
 
         <Text style={styles.sectionTitle}>{t('addListing.pinLocation')}</Text>
-        <View
-          onStartShouldSetResponderCapture={() => {
-            lockScroll();
-            return false; // let the touch continue through to the map/WebView underneath
+        <MapView
+          latitude={latitude ?? currentLocation.latitude}
+          longitude={longitude ?? currentLocation.longitude}
+          zoom={15}
+          pickable
+          pickedLocation={latitude !== null && longitude !== null ? { latitude, longitude } : null}
+          onLocationSelect={(point) => {
+            setLatitude(point.latitude);
+            setLongitude(point.longitude);
           }}
-          onTouchEnd={unlockScroll}
-          onTouchCancel={unlockScroll}
-        >
-          <MapView
-            latitude={latitude ?? currentLocation.latitude}
-            longitude={longitude ?? currentLocation.longitude}
-            zoom={15}
-            pickable
-            pickedLocation={latitude !== null && longitude !== null ? { latitude, longitude } : null}
-            onLocationSelect={(point) => {
-              setLatitude(point.latitude);
-              setLongitude(point.longitude);
-            }}
-            style={styles.map}
-          />
-        </View>
+          onTouchActiveChange={setMapPanning}
+          style={styles.map}
+        />
         <Text style={styles.mapHint}>
           {latitude !== null ? t('addListing.tapToMovePin') : t('addListing.tapToDropPin')}
         </Text>
@@ -213,6 +208,7 @@ export function AddListingDetailsScreen({ navigation, route }: Props) {
       <View style={styles.footer}>
         <Button label={t('addListing.continueToAmenities')} onPress={handleContinue} disabled={!canContinue} />
       </View>
+      <BrandFooter height={84} />
     </SafeAreaView>
   );
 }

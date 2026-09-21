@@ -3,6 +3,7 @@ import { Image, Pressable, ScrollView, StyleSheet, Text, View } from 'react-nati
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { Button } from '../../components/Button';
+// import { BrandFooter } from '../../components/BrandFooter';
 import { PhotoSourceSheet } from '../../components/PhotoSourceSheet';
 import { TextField } from '../../components/TextField';
 import { LanguageSheet } from '../../components/LanguageSheet';
@@ -372,6 +373,7 @@ export function ProfileScreen() {
         onCamera={handleTakePhoto}
         onLibrary={handleChooseFromLibrary}
       />
+      {/* <BrandFooter height={88} /> */}
     </SafeAreaView>
   );
 }

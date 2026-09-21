@@ -4,6 +4,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { Button } from '../../components/Button';
+import { BrandFooter } from '../../components/BrandFooter';
 import { Checkbox } from '../../components/Checkbox';
 import { PhoneRequiredDialog } from '../../components/PhoneRequiredDialog';
 import { ListingCard } from '../../components/ListingCard';
@@ -117,6 +118,7 @@ export function ListingReviewPublishScreen({ navigation, route }: Props) {
           publishListing();
         }}
       />
+      <BrandFooter height={84} />
     </SafeAreaView>
   );
 }

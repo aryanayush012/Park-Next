@@ -3,6 +3,9 @@ import { Alert, FlatList, Pressable, StyleSheet, Text, View } from 'react-native
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useFocusEffect } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
+import { EmptyState } from '../../components/EmptyState';
+import { InboxTrayArt } from '../../components/InboxTrayArt';
+import { BrandFooter } from '../../components/BrandFooter';
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { Button } from '../../components/Button';
 import { SegmentedControl } from '../../components/SegmentedControl';
@@ -258,7 +261,15 @@ export function BookingRequestsScreen({ navigation }: Props) {
             );
           }}
           ListEmptyComponent={
-            <Text style={styles.emptyText}>{t('requests.none')}</Text>
+            <EmptyState
+              icon="file-tray-outline"
+              // The pending tab is a provider's home base — the screen they
+              // open hoping for something. The history tab keeps the plain
+              // ring; it's browsed, not waited on.
+              art={<InboxTrayArt />}
+              title={t('requests.none')}
+              body={t('requests.noneBody')}
+            />
           }
         />
       ) : (
@@ -294,12 +305,15 @@ export function BookingRequestsScreen({ navigation }: Props) {
             </Pressable>
           )}
           ListEmptyComponent={
-            <Text style={styles.emptyText}>
-              Completed bookings on your listings will show up here — tap one to rate the renter.
-            </Text>
+            <EmptyState
+              icon="checkmark-done-outline"
+              title={t('requests.historyEmpty')}
+              body={t('requests.historyEmptyBody')}
+            />
           }
         />
       )}
+      <BrandFooter height={88} />
     </SafeAreaView>
   );
 }
@@ -315,7 +329,7 @@ const styles = StyleSheet.create({
     paddingBottom: spacing.sm,
   },
   title: {
-    ...typography.h1,
+    ...typography.displayLarge,
     color: colors.textPrimary,
   },
   subtitle: {
@@ -396,11 +410,5 @@ const styles = StyleSheet.create({
   },
   actionButton: {
     flex: 1,
-  },
-  emptyText: {
-    ...typography.body,
-    color: colors.textMuted,
-    textAlign: 'center',
-    marginTop: spacing.xl,
   },
 });

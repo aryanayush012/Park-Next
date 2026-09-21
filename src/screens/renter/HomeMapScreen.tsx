@@ -17,19 +17,21 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { Button } from '../../components/Button';
+import { EmptyState } from '../../components/EmptyState';
+import { NoSpotsArt } from '../../components/NoSpotsArt';
 import { ListingCard } from '../../components/ListingCard';
-import { MapMarker, MapView } from '../../components/MapView';
+import { MapLayer, MapMarker, MapView } from '../../components/MapView';
 import { Slider } from '../../components/Slider';
 import { Stepper } from '../../components/Stepper';
 import { TranslationKey, useTranslation } from '../../i18n';
-import { colors, radius, spacing, typography } from '../../theme';
+import { colors, elevation, radius, spacing, typography } from '../../theme';
 import { RenterHomeStackParamList } from '../../navigation/types';
 import { dataSource } from '../../data/dataSource';
 import { AMENITIES, AMENITY_SELECTOR_KEYS } from '../../data/mockData';
 import { AddressSuggestion, useAddressSuggestions } from '../../hooks/useaddresssuggestions';
 import { useCurrentLocation } from '../../hooks/useCurrentLocation';
 import { useRealtimeTable } from '../../hooks/useRealtimeTable';
-import { formatTimeFromISO } from '../../utils/format';
+import { formatTimeFromISO, haversineDistanceKm } from '../../utils/format';
 import { getAvailableOverlap, isListingAvailableForWindow } from '../../utils/listingAvailability';
 import {
   clampToStep,
@@ -66,6 +68,10 @@ const BUDGET_MAX = 500;
 // 10 keeps the stops far enough apart to hit with a thumb: 50 of them across
 // the track, rather than 100 at 3px each.
 const BUDGET_STEP = 10;
+// Product-wide search radius for "find spots near me" / a searched address —
+// wider than the RPC's own 5km default because renters are expected to
+// search a whole city, not just their immediate neighbourhood.
+const SEARCH_RADIUS_METERS = 50000;
 interface Filters {
   /**
    * Highest acceptable per-hour price, or null for no ceiling — which is
@@ -87,6 +93,16 @@ type SearchMode = 'now' | 'later';
 function clamp(value: number, min: number, max: number): number {
   return Math.min(max, Math.max(min, value));
 }
+
+const MAP_LAYERS: {
+  value: MapLayer;
+  labelKey: TranslationKey;
+  icon: keyof typeof Ionicons.glyphMap;
+}[] = [
+  { value: 'standard', labelKey: 'home.layerStandard', icon: 'map-outline' },
+  { value: 'satellite', labelKey: 'home.layerSatellite', icon: 'globe-outline' },
+  { value: 'terrain', labelKey: 'home.layerTerrain', icon: 'triangle-outline' },
+];
 
 const VEHICLE_OPTIONS: { key: VehicleType | null; labelKey: TranslationKey }[] = [
   { key: null, labelKey: 'home.all' },
@@ -118,6 +134,9 @@ export function HomeMapScreen({ navigation }: Props) {
   // filter over listings already near you. Null means "search near me".
   const [searchLocation, setSearchLocation] = useState<GeoPoint | null>(null);
   const [isSearchFocused, setIsSearchFocused] = useState(false);
+  // Lets the "no spots" empty state hand focus straight to the search box,
+  // rather than telling someone to go and tap it themselves.
+  const searchInputRef = useRef<TextInput>(null);
   const { suggestions: searchSuggestions } = useAddressSuggestions(query);
   // Clearing the box back to empty is how you say "never mind, near me again".
   useEffect(() => {
@@ -139,6 +158,14 @@ export function HomeMapScreen({ navigation }: Props) {
   const [sortMode, setSortMode] = useState<'distance' | 'rating'>('distance');
   const [sheetExpanded, setSheetExpanded] = useState(false);
   const [filtersModalVisible, setFiltersModalVisible] = useState(false);
+  const [mapLayer, setMapLayer] = useState<MapLayer>('standard');
+  const [layerPickerOpen, setLayerPickerOpen] = useState(false);
+  // Incrementing token rather than a boolean: the ask is "recentre now",
+  // and the same ask has to be expressible twice in a row.
+  const [recenterSignal, setRecenterSignal] = useState(0);
+  // Where the map itself is looking. Only the map knows — it reports back
+  // whenever a pan or zoom settles.
+  const [mapCenter, setMapCenter] = useState<GeoPoint | null>(null);
 
   // "When do you need parking?" — chosen before a specific spot, so the list
   // below can be filtered down to only the spots actually available for that
@@ -168,15 +195,6 @@ export function HomeMapScreen({ navigation }: Props) {
   // compute the next frame / decide which way to snap.
   const currentHeightRef = useRef(SHEET_COLLAPSED_HEIGHT);
 
-  // TEMPORARY for closed testing: real product behaviour is the RPC's own
-  // default (5km) — a spot that far from an hourly search isn't useful. But
-  // with only a handful of testers who may not be physically near each
-  // other, a tight radius would make their own test listings invisible to
-  // one another, which reads as a second bug on top of the one this is
-  // fixing. Tighten this back to something realistic (or drop the param
-  // entirely for the RPC's 5km default) before a wider release.
-  const TESTING_SEARCH_RADIUS_METERS = 5000000;
-
   // Guards against an out-of-order response: `currentLocation` starts on the
   // mock fallback and this re-fires once real GPS resolves (or once a place
   // is searched), so there are genuinely multiple requests in flight close
@@ -189,7 +207,7 @@ export function HomeMapScreen({ navigation }: Props) {
   const loadListings = useCallback(() => {
     const requestId = ++listingsRequestId.current;
     dataSource
-      .getNearbyListings(queryCenter.latitude, queryCenter.longitude, TESTING_SEARCH_RADIUS_METERS)
+      .getNearbyListings(queryCenter.latitude, queryCenter.longitude, SEARCH_RADIUS_METERS)
       .then((result) => {
         if (requestId === listingsRequestId.current) setListings(result);
       });
@@ -310,6 +328,21 @@ export function HomeMapScreen({ navigation }: Props) {
     [filteredListings, selectedListingId]
   );
 
+  /**
+   * Whether the map is still framed on the person using it.
+   *
+   * 60m rather than an exact match: GPS drifts, Leaflet's centre comes back
+   * with float error, and a recentre animation lands a hair off. Too tight
+   * and the dot flickers while standing still; too loose and a real pan
+   * down the street would not clear it.
+   *
+   * Null centre means the map has not reported in yet — it opens on the
+   * user's location, so treat that as centred rather than flashing hollow
+   * on first paint.
+   */
+  const isOnMyLocation =
+    !mapCenter || haversineDistanceKm(mapCenter, currentLocation) * 1000 < 60;
+
   const handleMarkerPress = (id: string) => {
     setSelectedListingId(id);
     setSheetExpanded(true);
@@ -421,15 +454,105 @@ export function HomeMapScreen({ navigation }: Props) {
         zoom={14}
         markers={markers}
         userLocation={currentLocation}
+        mapLayer={mapLayer}
+        recenterSignal={recenterSignal}
+        onCenterChanged={setMapCenter}
         onMarkerPress={handleMarkerPress}
         style={StyleSheet.absoluteFill}
       />
+
+      {/* Map controls sit just above the listings sheet and ride with it:
+          `sheetHeight` is the same Animated.Value that drives the sheet, so
+          they track it through a drag rather than jumping once it settles.
+          Anchored from the bottom, so the layer picker opens upward into
+          free map instead of underneath the sheet. */}
+      <Animated.View
+        style={[styles.mapControls, { bottom: Animated.add(sheetHeight, spacing.sm) }]}
+        pointerEvents="box-none"
+      >
+        {layerPickerOpen ? (
+          <View style={styles.layerPicker}>
+            {MAP_LAYERS.map((option) => {
+              const isActive = option.value === mapLayer;
+              return (
+                <Pressable
+                  key={option.value}
+                  onPress={() => {
+                    setMapLayer(option.value);
+                    setLayerPickerOpen(false);
+                  }}
+                  accessibilityRole="radio"
+                  accessibilityState={{ selected: isActive }}
+                  style={({ pressed }) => [
+                    styles.layerOption,
+                    isActive && styles.layerOptionActive,
+                    pressed && styles.layerOptionPressed,
+                  ]}
+                >
+                  <Ionicons
+                    name={option.icon}
+                    size={16}
+                    color={isActive ? colors.primary : colors.textSecondary}
+                  />
+                  <Text style={[styles.layerLabel, isActive && styles.layerLabelActive]}>
+                    {t(option.labelKey)}
+                  </Text>
+                </Pressable>
+              );
+            })}
+          </View>
+        ) : null}
+
+        <Pressable
+          onPress={() => setLayerPickerOpen((open) => !open)}
+          accessibilityRole="button"
+          accessibilityLabel={t('home.mapLayers')}
+          accessibilityState={{ expanded: layerPickerOpen }}
+          style={({ pressed }) => [styles.mapButton, pressed && styles.mapButtonPressed]}
+        >
+          <Ionicons
+            name="layers-outline"
+            size={20}
+            color={layerPickerOpen ? colors.primary : colors.textPrimary}
+          />
+        </Pressable>
+
+        <Pressable
+          onPress={() => {
+            // Clear a searched destination too: "my location" means mine,
+            // not the last place that was looked up.
+            setSearchLocation(null);
+            setQuery('');
+            setLayerPickerOpen(false);
+            if (locationSource === 'mock') refreshLocation();
+            setRecenterSignal((n) => n + 1);
+          }}
+          accessibilityRole="button"
+          accessibilityLabel={t('home.myLocation')}
+          style={({ pressed }) => [styles.mapButton, pressed && styles.mapButtonPressed]}
+        >
+          {/* The crosshair is always the outline glyph and the centre dot is
+              drawn on top, rather than swapping to Ionicons' filled
+              `locate`: the two glyphs are near-identical, so the filled one
+              reads as no change at all. An explicit dot appearing inside
+              the ring is the unmistakable signal. */}
+          <View style={styles.locateIcon}>
+            <Ionicons
+              name="locate-outline"
+              size={20}
+              color={isOnMyLocation ? colors.primary : colors.textPrimary}
+            />
+            {isOnMyLocation ? <View style={styles.locateDot} /> : null}
+          </View>
+        </Pressable>
+      </Animated.View>
 
       <SafeAreaView style={styles.topOverlay} edges={['top']} pointerEvents="box-none">
         <View style={styles.searchBarWrap}>
           <View style={styles.searchBar}>
             <Ionicons name="search" size={18} color={colors.textMuted} />
             <TextInput
+              ref={searchInputRef}
               value={query}
               onChangeText={setQuery}
               onFocus={() => setIsSearchFocused(true)}
@@ -517,14 +640,27 @@ export function HomeMapScreen({ navigation }: Props) {
 
         {!locationLoading && locationSource === 'mock' && (
           <Pressable
-            style={styles.locationNotice}
+            style={({ pressed }) => [
+              styles.locationNotice,
+              pressed && styles.locationNoticePressed,
+            ]}
             onPress={locationNeedsSettings ? openLocationSettings : refreshLocation}
+            accessibilityRole="button"
+            accessibilityLabel={`${t('home.locationUnavailable')} ${
+              locationNeedsSettings ? t('home.tapToFetch') : t('home.tapRetry')
+            }`}
             hitSlop={4}
           >
-            <Ionicons name="location-outline" size={23} color={colors.textSecondary} />
-            <Text style={styles.locationNoticeText}>
-              {locationNeedsSettings ? t('home.tapToFetch') : t('home.tapRetry')}
-            </Text>
+            <View style={styles.locationNoticeIcon}>
+              <Ionicons name="location-sharp" size={22} color={colors.primary} />
+            </View>
+            <View style={styles.locationNoticeText}>
+              <Text style={styles.locationNoticeTitle}>{t('home.locationUnavailable')}</Text>
+              <Text style={styles.locationNoticeBody}>
+                {locationNeedsSettings ? t('home.tapToFetch') : t('home.tapRetry')}
+              </Text>
+            </View>
+            <Ionicons name="chevron-forward" size={22} color={colors.textPrimary} />
           </Pressable>
         )}
       </SafeAreaView>
@@ -578,7 +714,22 @@ export function HomeMapScreen({ navigation }: Props) {
             </View>
           )}
           ListEmptyComponent={
-            <Text style={styles.emptyText}>{t('home.noSpots')}</Text>
+            <EmptyState
+              compact
+              icon="search-outline"
+              art={<NoSpotsArt size={132} />}
+              title={t('home.noSpots')}
+              body={t('home.noSpotsBody')}
+              action={{
+                label: t('home.tryAnotherLocation'),
+                onPress: () => {
+                  // Drop the sheet first: expanded it covers most of the
+                  // screen, and the keyboard is about to want that space.
+                  setSheetExpanded(false);
+                  searchInputRef.current?.focus();
+                },
+              }}
+            />
           }
         />
       </Animated.View>
@@ -802,6 +953,71 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: colors.background,
   },
+  mapControls: {
+    position: 'absolute',
+    // `bottom` is supplied at render time from the sheet's animated height.
+    right: spacing.md,
+    alignItems: 'flex-end',
+    gap: spacing.xs,
+  },
+  locateIcon: {
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  /** Sits inside the crosshair's own ring, so it reads as the ring filling
+   *  in rather than as a separate badge stuck on the icon. */
+  locateDot: {
+    position: 'absolute',
+    width: 7,
+    height: 7,
+    borderRadius: 3.5,
+    backgroundColor: colors.primary,
+  },
+  mapButton: {
+    width: 42,
+    height: 42,
+    borderRadius: radius.full,
+    backgroundColor: colors.surface,
+    borderWidth: 1,
+    borderColor: colors.surfaceBorder,
+    alignItems: 'center',
+    justifyContent: 'center',
+    ...elevation.card,
+  },
+  mapButtonPressed: {
+    backgroundColor: colors.surfaceElevated,
+    borderColor: colors.primary,
+  },
+  layerPicker: {
+    backgroundColor: colors.surface,
+    borderRadius: radius.lg,
+    borderWidth: 1,
+    borderColor: colors.surfaceBorder,
+    padding: spacing.xxs,
+    gap: 2,
+    ...elevation.card,
+  },
+  layerOption: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.xs,
+    paddingVertical: spacing.xs,
+    paddingHorizontal: spacing.sm,
+    borderRadius: radius.md,
+  },
+  layerOptionActive: {
+    backgroundColor: colors.primaryMuted,
+  },
+  layerOptionPressed: {
+    backgroundColor: colors.surfaceElevated,
+  },
+  layerLabel: {
+    ...typography.bodyMedium,
+    color: colors.textSecondary,
+  },
+  layerLabelActive: {
+    color: colors.primary,
+  },
   topOverlay: {
     position: 'absolute',
     top: 0,
@@ -918,24 +1134,52 @@ const styles = StyleSheet.create({
     color: colors.textOnPrimary,
     fontFamily: typography.bodyMedium.fontFamily,
   },
+  /* Without a location this screen cannot do its one job, so this stops
+     being a status chip and becomes the screen's primary action. Dark fill
+     rather than an amber wash: the amber is spent on the border, the icon
+     and the glow, which leaves the white headline as the brightest thing
+     in it — an amber-on-amber card buries its own text. */
   locationNotice: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 6,
-    alignSelf: 'flex-start',
+    gap: spacing.sm,
+    alignSelf: 'stretch',
     backgroundColor: colors.surface,
-    borderWidth: 1,
-    borderColor: colors.surfaceBorder,
-    borderRadius: radius.full,
+    borderWidth: 1.5,
+    borderColor: colors.primary,
+    borderRadius: radius.xxl,
     paddingHorizontal: spacing.sm,
-    paddingVertical: 19,
-    marginTop: spacing.sm,
-    maxWidth: '92%',
+    paddingVertical: spacing.xs,
+    marginTop: spacing.lg,
+    ...elevation.glowAmbient,
+  },
+  locationNoticePressed: {
+    backgroundColor: colors.surfaceElevated,
+  },
+  locationNoticeIcon: {
+    width: 44,
+    height: 44,
+    borderRadius: radius.full,
+    backgroundColor: 'rgba(245, 166, 35, 0.22)',
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   locationNoticeText: {
+    // Takes the middle so the disc and the chevron stay pinned to the ends.
+    flex: 1,
+  },
+  locationNoticeTitle: {
+    ...typography.h3,
+    color: colors.textPrimary,
+  },
+  locationNoticeBody: {
+    // A step below `body`: this is the explanation under the headline, and
+    // at the same size the two lines competed instead of reading as one
+    // title-and-detail pair. It also keeps the line from wrapping to three
+    // on a narrow screen.
     ...typography.caption,
     color: colors.textSecondary,
-    flexShrink: 1,
+    marginTop: 1,
   },
   sheet: {
     position: 'absolute',
@@ -1000,12 +1244,6 @@ const styles = StyleSheet.create({
   },
   cardWrap: {
     marginBottom: spacing.sm,
-  },
-  emptyText: {
-    ...typography.body,
-    color: colors.textMuted,
-    textAlign: 'center',
-    marginTop: spacing.lg,
   },
   modalBackdrop: {
     flex: 1,

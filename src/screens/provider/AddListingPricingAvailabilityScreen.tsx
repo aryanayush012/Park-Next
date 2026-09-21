@@ -4,6 +4,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { Button } from '../../components/Button';
+import { BrandFooter } from '../../components/BrandFooter';
 import { Stepper } from '../../components/Stepper';
 import { TranslationKey, useTranslation } from '../../i18n';
 import { colors, radius, spacing, typography } from '../../theme';
@@ -182,6 +183,7 @@ export function AddListingPricingAvailabilityScreen({ navigation, route }: Props
       <View style={styles.footer}>
         <Button label={t('addListing.continueToReview')} onPress={handleContinue} disabled={!canContinue} />
       </View>
+      <BrandFooter height={84} />
     </SafeAreaView>
   );
 }

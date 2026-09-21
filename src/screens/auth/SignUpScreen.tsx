@@ -1,10 +1,8 @@
 import React, { useState } from 'react';
 import {
-  ActivityIndicator,
   Image,
   KeyboardAvoidingView,
   Platform,
-  Pressable,
   ScrollView,
   StyleSheet,
   Text,
@@ -13,10 +11,11 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { Button } from '../../components/Button';
-import { GoogleIcon } from '../../components/GoogleIcon';
+import { BrandFooter } from '../../components/BrandFooter';
+import { SignInHero } from '../../components/SignInHero';
 import { TextField } from '../../components/TextField';
 import { useTranslation } from '../../i18n';
-import { colors, radius, spacing, typography } from '../../theme';
+import { colors, fontFamily, spacing, typography } from '../../theme';
 import { RootStackParamList } from '../../navigation/types';
 import { isSupabaseConfigured, supabase } from '../../data/supabaseClient';
 import { signInWithGoogle } from '../../utils/googleAuth';
@@ -136,6 +135,10 @@ export function SignUpScreen({ navigation }: Props) {
 
   return (
     <SafeAreaView style={styles.container} edges={['top', 'bottom']}>
+      {/* Outside the ScrollView: as a content-container child its negative
+          offset would be clipped on Android, and it's a backdrop rather
+          than part of the form's flow. */}
+
       <KeyboardAvoidingView
         style={styles.flex}
         behavior={Platform.OS === 'ios' ? 'padding' : undefined}
@@ -144,34 +147,22 @@ export function SignUpScreen({ navigation }: Props) {
           contentContainerStyle={styles.scrollContent}
           keyboardShouldPersistTaps="handled"
         >
+      <SignInHero width={160} height={175} style={styles.hero} />
           <Image
             source={require('../../../assets/logo-wordmark.png')}
             style={styles.logoMark}
             resizeMode="contain"
             accessibilityLabel="ParkNext"
           />
-
           <Text style={styles.title}>{t('signUp.title')}</Text>
           <Text style={styles.subtitle}>{t('signUp.subtitle')}</Text>
 
-          <Pressable
+          <Button
+            variant="google"
+            label={t('auth.continueWithGoogle')}
             onPress={handleGoogleSignIn}
-            disabled={isGoogleSigningIn}
-            style={({ pressed }) => [
-              styles.googleButton,
-              pressed && styles.googleButtonPressed,
-              isGoogleSigningIn && styles.googleButtonDisabled,
-            ]}
-          >
-            {isGoogleSigningIn ? (
-              <ActivityIndicator color={colors.textPrimary} />
-            ) : (
-              <>
-                <GoogleIcon size={20} />
-                <Text style={styles.googleButtonText}>{t('auth.continueWithGoogle')}</Text>
-              </>
-            )}
-          </Pressable>
+            loading={isGoogleSigningIn}
+          />
 
           <View style={styles.dividerRow}>
             <View style={styles.dividerLine} />
@@ -207,6 +198,7 @@ export function SignUpScreen({ navigation }: Props) {
           <View style={styles.fieldSpacing}>
             <TextField
               label={t('auth.emailLabel')}
+              icon="mail-outline"
               placeholder="priya.sharma@gmail.com"
               value={email}
               onChangeText={setEmail}
@@ -220,18 +212,21 @@ export function SignUpScreen({ navigation }: Props) {
           <View style={styles.fieldSpacing}>
             <TextField
               label={t('auth.passwordLabel')}
+              icon="lock-closed-outline"
               placeholder={t('auth.passwordMinPlaceholder')}
               value={password}
               onChangeText={setPassword}
               autoCapitalize="none"
               autoComplete="password-new"
               secureTextEntry
+              secureToggle
               errorText={showPasswordError ? t('auth.passwordTooShort') : undefined}
             />
           </View>
           <View style={styles.fieldSpacing}>
             <TextField
               label={t('signUp.confirmPassword')}
+              icon="lock-closed-outline"
               placeholder={t('auth.typeItAgain')}
               value={confirmPassword}
               onChangeText={setConfirmPassword}
@@ -239,6 +234,7 @@ export function SignUpScreen({ navigation }: Props) {
               autoCapitalize="none"
               autoComplete="password-new"
               secureTextEntry
+              secureToggle
               errorText={showConfirmError ? t('auth.passwordsDontMatch') : undefined}
             />
           </View>
@@ -250,6 +246,7 @@ export function SignUpScreen({ navigation }: Props) {
         <View style={styles.footer}>
           <Button
             label={t('signUp.submit')}
+            trailingIcon="arrow-forward"
             onPress={handleCreateAccount}
             disabled={
               !firstName || !lastName || !email || !password || !confirmPassword || isSubmitting
@@ -260,10 +257,14 @@ export function SignUpScreen({ navigation }: Props) {
             By continuing, you agree to ParkNext's Terms & Privacy Policy.
           </Text>
           <Text style={styles.footerLinkRow}>
-            Already have an account?{' '}
+            {t('signUp.haveAccount')}{' '}
             <Text style={styles.footerLink} onPress={() => navigation.navigate('SignIn')}>{t('signIn.submit')}</Text>
           </Text>
         </View>
+
+        {/* Left untranslated on purpose: part of the brand lock-up, like the
+            wordmark — and letterspaced Devanagari breaks the shirorekha. */}
+        <BrandFooter height={92} />
       </KeyboardAvoidingView>
     </SafeAreaView>
   );
@@ -280,18 +281,30 @@ const styles = StyleSheet.create({
   scrollContent: {
     paddingHorizontal: spacing.lg,
     paddingTop: spacing.lg,
+    paddingBottom: spacing.xxl,
     flexGrow: 1,
   },
+  hero: {
+    position: 'absolute',
+    right: 0,
+    top: -25,
+  },
   logoMark: {
-    // 1400 x 271 artwork, so the height follows from the width.
-    width: 168,
-    height: 33,
+    // 1400 x 266 artwork, so the height follows from the width.
+    width: 180,
+    height: 34,
+    marginBottom: spacing.xxxl,
+  },
+  brandTagline: {
+    ...typography.body,
+    color: colors.textSecondary,
+    marginTop: spacing.xxs,
     marginBottom: spacing.lg,
   },
   title: {
-    ...typography.h1,
+    ...typography.display,
     color: colors.textPrimary,
-    marginBottom: spacing.xs,
+    marginBottom: spacing.xxs,
   },
   subtitle: {
     ...typography.body,
@@ -307,28 +320,6 @@ const styles = StyleSheet.create({
   },
   nameField: {
     flex: 1,
-  },
-  googleButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: spacing.sm,
-    minHeight: 56,
-    borderRadius: radius.full,
-    borderWidth: 1.5,
-    borderColor: colors.surfaceBorder,
-    backgroundColor: colors.surface,
-  },
-  googleButtonPressed: {
-    backgroundColor: colors.surfaceElevated,
-    borderColor: colors.primary,
-  },
-  googleButtonDisabled: {
-    opacity: 0.7,
-  },
-  googleButtonText: {
-    ...typography.buttonLabel,
-    color: colors.textPrimary,
   },
   dividerRow: {
     flexDirection: 'row',
@@ -366,12 +357,13 @@ const styles = StyleSheet.create({
     marginTop: spacing.sm,
   },
   footerLinkRow: {
-    ...typography.caption,
-    color: colors.textMuted,
+    ...typography.body,
+    color: colors.textSecondary,
     textAlign: 'center',
     marginTop: spacing.sm,
   },
   footerLink: {
+    fontFamily: fontFamily.semiBold,
     color: colors.primary,
   },
 });

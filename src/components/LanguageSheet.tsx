@@ -1,6 +1,7 @@
 import React from 'react';
 import { Modal, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import { useSheetBottomInset } from '../hooks/useSheetBottomInset';
 import { colors, radius, spacing, typography } from '../theme';
 import { Language, LANGUAGES, useTranslation } from '../i18n';
 
@@ -18,6 +19,7 @@ export interface LanguageSheetProps {
  */
 export function LanguageSheet({ visible, onClose }: LanguageSheetProps) {
   const { t, language, setLanguage } = useTranslation();
+  const bottomInset = useSheetBottomInset();
 
   const choose = (next: Language) => {
     setLanguage(next);
@@ -34,7 +36,7 @@ export function LanguageSheet({ visible, onClose }: LanguageSheetProps) {
     >
       <Pressable style={styles.backdrop} onPress={onClose} accessibilityLabel={t('common.dismiss')}>
         {/* Swallows taps on the sheet so they don't close it. */}
-        <Pressable style={styles.sheet} onPress={() => {}}>
+        <Pressable style={[styles.sheet, { paddingBottom: bottomInset }]} onPress={() => {}}>
           <View style={styles.grabber} />
           <Text style={styles.title}>{t('profile.language')}</Text>
 
@@ -77,7 +79,8 @@ const styles = StyleSheet.create({
     borderColor: colors.surfaceBorder,
     paddingHorizontal: spacing.lg,
     paddingTop: spacing.sm,
-    paddingBottom: spacing.xl,
+    // paddingBottom comes from useSheetBottomInset — a fixed value here
+    // hides the last row behind the navigation bar on devices that have one.
   },
   grabber: {
     alignSelf: 'center',

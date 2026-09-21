@@ -157,12 +157,9 @@ appear in the app bundle.
   `verifyOtp` when configured, and keep the existing mocked "accept any
   6-digit code" flow when they're not.
 
-## One thing worth knowing before you rely on this for real users
+## Profile visibility
 
-Row Level Security here follows a pragmatic V1 trade-off: any *signed-in*
-user can read any other user's `name`/`avatar_url`/`email` (not anonymous
-visitors — you have to be logged in). Postgres RLS filters rows, not
-columns, and doing this "properly" (public name/avatar, private email/phone)
-needs either a dedicated view or an Edge Function. That's called out in
-`migrations/0002_profiles.sql`'s comments — worth tightening before a real
-public launch, not necessary for building/testing.
+Row Level Security only grants full-row visibility (name, phone, email,
+avatar) between two people a real booking actually connects, in either
+direction — not to any signed-in stranger. See `migrations/0012_*.sql` for
+the policy and reasoning.

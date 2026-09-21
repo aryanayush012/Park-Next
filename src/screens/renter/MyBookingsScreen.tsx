@@ -4,6 +4,9 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { useFocusEffect } from '@react-navigation/native';
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { BookingCard } from '../../components/BookingCard';
+import { CalendarCarArt } from '../../components/CalendarCarArt';
+import { EmptyState } from '../../components/EmptyState';
+import { BrandFooter } from '../../components/BrandFooter';
 import { SegmentedControl } from '../../components/SegmentedControl';
 import { useTranslation } from '../../i18n';
 import { colors, spacing, typography } from '../../theme';
@@ -101,16 +104,9 @@ export function MyBookingsScreen({ navigation }: Props) {
 
   const handlePress = ({ booking }: JoinedBooking) => {
     if (tab === 'upcoming') {
-      // `booked` (accepted, not yet checked in) and `in_progress` both belong
-      // on Active Booking — that's the screen that actually shows the
-      // arrival code / live countdown and the rest of the booking's detail.
-      // Only a still-`pending` request has nothing to show there yet, so it
-      // goes to Booking Confirmation's waiting-for-approval state instead.
-      if (booking.status === 'booked' || booking.status === 'in_progress') {
-        navigation.navigate('ActiveBooking', { bookingId: booking.id });
-      } else {
-        navigation.navigate('BookingConfirmation', { bookingId: booking.id, justBooked: false });
-      }
+      // Every upcoming state — pending, booked, in progress — lives on
+      // Active Booking now; it owns the whole life of a booking.
+      navigation.navigate('ActiveBooking', { bookingId: booking.id });
     } else {
       navigation.navigate('BookingDetail', { bookingId: booking.id });
     }
@@ -120,6 +116,7 @@ export function MyBookingsScreen({ navigation }: Props) {
     <SafeAreaView style={styles.container} edges={['top', 'bottom']}>
       <View style={styles.header}>
         <Text style={styles.title}>{t('bookings.title')}</Text>
+        <Text style={styles.subtitle}>{t('bookings.subtitle')}</Text>
       </View>
 
       <View style={styles.segmentWrap}>
@@ -159,14 +156,35 @@ export function MyBookingsScreen({ navigation }: Props) {
         )}
         ListEmptyComponent={
           !isLoading ? (
-            <Text style={styles.emptyText}>
-              {tab === 'upcoming'
-                ? t('bookings.noUpcoming')
-                : t('bookings.noPast')}
-            </Text>
+            <EmptyState
+              icon={tab === 'upcoming' ? 'calendar-clear-outline' : 'time-outline'}
+              // The upcoming tab is the one people land on and the one
+              // that's empty most often, so it earns the drawn calendar;
+              // history keeps the plain ring.
+              art={tab === 'upcoming' ? <CalendarCarArt /> : undefined}
+              title={tab === 'upcoming' ? t('bookings.noUpcoming') : t('bookings.noPast')}
+              body={tab === 'upcoming' ? t('bookings.noUpcomingBody') : t('bookings.noPastBody')}
+              // Only the upcoming tab has a useful next step — an empty
+              // history isn't a problem to solve, it just hasn't happened
+              // yet, and a CTA there would be nagging rather than helping.
+              action={
+                tab === 'upcoming'
+                  ? {
+                      label: t('bookings.findParking'),
+                      onPress: () => navigation.getParent()?.navigate('Home'),
+                    }
+                  : undefined
+              }
+            />
           ) : null
         }
       />
+
+      {/* Only when there's nothing to scroll: over a populated list this
+          would be chrome competing with the cards. */}
+      {!isLoading && visible.length === 0 ? (
+        <BrandFooter height={128} />
+      ) : null}
     </SafeAreaView>
   );
 }
@@ -181,8 +199,13 @@ const styles = StyleSheet.create({
     paddingTop: spacing.sm,
   },
   title: {
-    ...typography.h1,
+    ...typography.displayLarge,
     color: colors.textPrimary,
+  },
+  subtitle: {
+    ...typography.body,
+    color: colors.textSecondary,
+    marginTop: spacing.xxs,
     marginBottom: spacing.md,
   },
   segmentWrap: {
@@ -195,11 +218,5 @@ const styles = StyleSheet.create({
   },
   cardWrap: {
     marginBottom: spacing.md,
-  },
-  emptyText: {
-    ...typography.body,
-    color: colors.textMuted,
-    textAlign: 'center',
-    marginTop: spacing.xl,
   },
 });

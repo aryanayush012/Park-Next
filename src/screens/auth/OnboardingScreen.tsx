@@ -13,6 +13,7 @@ import Svg, { Circle, Defs, Path, RadialGradient, Stop } from 'react-native-svg'
 import { Ionicons } from '@expo/vector-icons';
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { Button } from '../../components/Button';
+import { BrandFooter } from '../../components/BrandFooter';
 import { useTranslation } from '../../i18n';
 import { colors, fontFamily, radius, spacing, typography } from '../../theme';
 import { RootStackParamList } from '../../navigation/types';
@@ -356,6 +357,7 @@ export function OnboardingScreen({ navigation }: Props) {
           <View style={styles.skipSpacer} />
         )}
       </View>
+      <BrandFooter height={96} />
     </SafeAreaView>
   );
 }

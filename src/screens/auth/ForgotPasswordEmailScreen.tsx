@@ -12,6 +12,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { Button } from '../../components/Button';
+import { BrandFooter } from '../../components/BrandFooter';
 import { TextField } from '../../components/TextField';
 import { useTranslation } from '../../i18n';
 import { colors, spacing, typography } from '../../theme';
@@ -81,6 +82,7 @@ export function ForgotPasswordEmailScreen({ navigation }: Props) {
 
           <TextField
             label={t('auth.emailLabel')}
+            icon="mail-outline"
             placeholder="priya.sharma@gmail.com"
             value={email}
             onChangeText={setEmail}
@@ -100,6 +102,7 @@ export function ForgotPasswordEmailScreen({ navigation }: Props) {
             loading={isSending}
           />
         </View>
+        <BrandFooter height={92} />
       </KeyboardAvoidingView>
     </SafeAreaView>
   );
@@ -127,7 +130,7 @@ const styles = StyleSheet.create({
     flexGrow: 1,
   },
   title: {
-    ...typography.h1,
+    ...typography.display,
     color: colors.textPrimary,
     marginBottom: spacing.xs,
   },

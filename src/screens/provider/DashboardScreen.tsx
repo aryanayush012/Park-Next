@@ -1,9 +1,11 @@
 import React, { useCallback, useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { CalendarCarArt } from '../../components/CalendarCarArt';
+import { EmptyState } from '../../components/EmptyState';
+import { BrandFooter } from '../../components/BrandFooter';
 import { useFocusEffect } from '@react-navigation/native';
 import { BottomTabScreenProps } from '@react-navigation/bottom-tabs';
-import { Button } from '../../components/Button';
 import { StatusBadge } from '../../components/StatusBadge';
 import { useTranslation } from '../../i18n';
 import { colors, radius, spacing, typography } from '../../theme';
@@ -58,6 +60,20 @@ export function DashboardScreen({ navigation }: Props) {
 
   const activeListingsCount = listings.filter((listing) => listing.isActive).length;
 
+  const handleAddListing = () => {
+    // Seeds the whole stack rather than just naming a screen.
+    // `navigate('Listings', { screen: … })` on a tab that has not been
+    // opened yet rehydrates the stack as exactly that one screen —
+    // StackRouter only inserts the initial route when the incoming route
+    // list is empty — leaving Add Listing with nothing beneath it, so Back
+    // did nothing and finishing the flow had nowhere to return to.
+    navigation.navigate('Listings', {
+      state: {
+        routes: [{ name: 'MyListings' }, { name: 'AddListingDetails', params: {} }],
+      },
+    });
+  };
+
   return (
     <SafeAreaView style={styles.container} edges={['top', 'bottom']}>
       <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
@@ -83,7 +99,14 @@ export function DashboardScreen({ navigation }: Props) {
         </View>
 
         {upcoming.length === 0 ? (
-          <Text style={styles.emptyText}>{t('dashboard.noUpcoming')}</Text>
+          <EmptyState
+            compact
+            icon="calendar-clear-outline"
+            art={<CalendarCarArt size={132} />}
+            title={t('dashboard.noUpcoming')}
+            body={t('dashboard.noUpcomingBody')}
+            action={{ label: t('dashboard.addListing'), onPress: handleAddListing }}
+          />
         ) : (
           upcoming.map(({ booking, listing }) => (
             <Pressable
@@ -113,25 +136,7 @@ export function DashboardScreen({ navigation }: Props) {
         <View style={{ height: spacing.lg }} />
       </ScrollView>
 
-      <View style={styles.footer}>
-        <Button
-          label={t('dashboard.addListing')}
-          onPress={() =>
-            // Seeds the whole stack rather than just naming a screen.
-            // `navigate('Listings', { screen: … })` on a tab that has not
-            // been opened yet rehydrates the stack as exactly that one
-            // screen — StackRouter only inserts the initial route when the
-            // incoming route list is empty — leaving Add Listing with
-            // nothing beneath it, so Back did nothing and finishing the
-            // flow had nowhere to return to.
-            navigation.navigate('Listings', {
-              state: {
-                routes: [{ name: 'MyListings' }, { name: 'AddListingDetails', params: {} }],
-              },
-            })
-          }
-        />
-      </View>
+      <BrandFooter height={88} />
     </SafeAreaView>
   );
 }
@@ -146,7 +151,7 @@ const styles = StyleSheet.create({
     paddingTop: spacing.sm,
   },
   greeting: {
-    ...typography.h1,
+    ...typography.displayLarge,
     color: colors.textPrimary,
   },
   subtitle: {
@@ -195,11 +200,6 @@ const styles = StyleSheet.create({
     ...typography.bodyMedium,
     color: colors.primary,
   },
-  emptyText: {
-    ...typography.body,
-    color: colors.textMuted,
-    marginBottom: spacing.md,
-  },
   bookingCard: {
     backgroundColor: colors.surface,
     borderRadius: radius.lg,
@@ -228,10 +228,5 @@ const styles = StyleSheet.create({
   bookingSchedule: {
     ...typography.bodyMedium,
     color: colors.textSecondary,
-  },
-  footer: {
-    padding: spacing.md,
-    borderTopWidth: 1,
-    borderTopColor: colors.surfaceBorder,
   },
 });

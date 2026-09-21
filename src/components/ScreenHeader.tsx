@@ -15,13 +15,19 @@ export interface ScreenHeaderProps {
    * button.
    */
   onBack?: () => void;
+  /**
+   * Right-aligned slot — a Share pill, an edit affordance. Pushed to the
+   * far edge, so it reads as a separate control rather than part of the
+   * title.
+   */
+  action?: React.ReactNode;
 }
 
 /** The back-arrow + title strip used at the top of pushed screens. */
-export function ScreenHeader({ title, onBack }: ScreenHeaderProps) {
+export function ScreenHeader({ title, onBack, action }: ScreenHeaderProps) {
   const { t } = useTranslation();
 
-  if (!onBack && !title) return null;
+  if (!onBack && !title && !action) return null;
 
   return (
     <View style={styles.header}>
@@ -37,11 +43,15 @@ export function ScreenHeader({ title, onBack }: ScreenHeaderProps) {
         </Pressable>
       ) : null}
       {title ? <Text style={styles.title}>{title}</Text> : null}
+      {action ? <View style={styles.action}>{action}</View> : null}
     </View>
   );
 }
 
 const styles = StyleSheet.create({
+  action: {
+    marginLeft: 'auto',
+  },
   header: {
     flexDirection: 'row',
     alignItems: 'center',

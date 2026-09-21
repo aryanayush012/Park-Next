@@ -18,6 +18,7 @@ type TypeStyle = Pick<TextStyle, 'fontFamily' | 'fontSize' | 'lineHeight' | 'let
  * Type scale — display down to caption/button-label.
  */
 export const typography: Record<
+  | 'displayLarge'
   | 'display'
   | 'h1'
   | 'h2'
@@ -25,10 +26,24 @@ export const typography: Record<
   | 'bodyLarge'
   | 'body'
   | 'bodyMedium'
+  | 'eyebrow'
+  | 'label'
+  | 'dataValue'
   | 'caption'
   | 'buttonLabel',
   TypeStyle
 > = {
+  /**
+   * Screen-opening statements only — "Welcome back", "My Bookings". One per
+   * screen, at the top, never mid-page. Tighter tracking than `display`
+   * because at this size the default spacing reads loose.
+   */
+  displayLarge: {
+    fontFamily: fontFamily.extraBold,
+    fontSize: 40,
+    lineHeight: 48,
+    letterSpacing: -0.8,
+  },
   display: {
     fontFamily: fontFamily.extraBold,
     fontSize: 34,
@@ -66,6 +81,36 @@ export const typography: Record<
     fontFamily: fontFamily.medium,
     fontSize: 15,
     lineHeight: 22,
+  },
+  /**
+   * Letterspaced micro-caps — section markers and the brand taglines that
+   * sit on the horizon art. Callers pass the text already uppercased;
+   * `textTransform` isn't part of the shared type so it stays a deliberate
+   * choice at the call site.
+   */
+  eyebrow: {
+    fontFamily: fontFamily.semiBold,
+    fontSize: 11,
+    lineHeight: 16,
+    letterSpacing: 1.6,
+  },
+  /** The quiet grey word above a value — "Date", "Total Price". */
+  label: {
+    fontFamily: fontFamily.medium,
+    fontSize: 12,
+    lineHeight: 16,
+    letterSpacing: 0.3,
+  },
+  /**
+   * Numbers someone reads off the screen under pressure — an arrival code at
+   * a barrier gate, a price, a countdown. Deliberately a step above `h3`:
+   * these are the payload of the screen, not a heading for it.
+   */
+  dataValue: {
+    fontFamily: fontFamily.bold,
+    fontSize: 20,
+    lineHeight: 26,
+    letterSpacing: -0.2,
   },
   caption: {
     fontFamily: fontFamily.regular,

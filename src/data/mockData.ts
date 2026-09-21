@@ -10,7 +10,7 @@ export const AMENITY_SELECTOR_KEYS: AmenityKey[] = ['ev_charging', 'covered', 'c
  * A single directory of {id, name, rating, phone} covering both renters
  * (shown on the provider's Booking Requests / Booking Detail screens) and
  * listing owners (shown to the renter as "Contact Host" once a booking is
- * confirmed — see `ActiveBookingScreen`/`BookingConfirmationScreen`). One
+ * confirmed — see `ActiveBookingScreen`, which owns a booking's whole life). One
  * flat map since, in this app's single-account "one account, two hats"
  * model, the same id can appear on either side depending on the listing.
  * `u9`'s own entry is mutated in place by `UserProfileContext` when the

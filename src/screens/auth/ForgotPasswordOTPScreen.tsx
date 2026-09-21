@@ -4,6 +4,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { Button } from '../../components/Button';
+import { BrandFooter } from '../../components/BrandFooter';
 import { OTPInput } from '../../components/OTPInput';
 import { useTranslation } from '../../i18n';
 import { colors, spacing, typography } from '../../theme';
@@ -139,6 +140,8 @@ export function ForgotPasswordOTPScreen({ navigation, route }: Props) {
       <View style={styles.footer}>
         <Button label={t('forgotOtp.verify')} onPress={handleVerify} loading={isVerifying} />
       </View>
+
+      <BrandFooter height={92} />
     </SafeAreaView>
   );
 }
@@ -162,7 +165,7 @@ const styles = StyleSheet.create({
     paddingTop: spacing.lg,
   },
   title: {
-    ...typography.h1,
+    ...typography.display,
     color: colors.textPrimary,
     marginBottom: spacing.xs,
   },

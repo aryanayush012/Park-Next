@@ -120,7 +120,7 @@ export function BookingFlowScreen({ navigation, route }: Props) {
           .invoke('notify-booking-request', { body: { bookingId: booking.id } })
           .catch(() => {});
       }
-      navigation.replace('BookingConfirmation', { bookingId: booking.id, justBooked: true });
+      navigation.replace('ActiveBooking', { bookingId: booking.id, justBooked: true });
     } catch (error) {
       // The database itself is the real source of truth for "is this slot
       // still free" — a real Postgres project enforces that with a GiST

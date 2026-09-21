@@ -7,6 +7,8 @@ import { WebViewRenderProcessGoneEvent } from 'react-native-webview/lib/WebViewT
 import { useTranslation } from '../i18n';
 import { colors, spacing, typography } from '../theme';
 import { GeoPoint } from '../types';
+import { CAR_MARKER_SVG } from '../../assets/carMarkerSvg';
+import { HOUSE_MARKER_SVG } from '../../assets/houseMarkerSvg';
 import { LEAFLET_CSS, LEAFLET_JS } from '../../assets/leafletAssets';
 
 /**
@@ -41,6 +43,9 @@ export interface MapRoute {
 
 export type RouteSource = 'osrm' | 'straight';
 
+/** Which basemap the map draws. Mirrors the choices Google Maps offers. */
+export type MapLayer = 'standard' | 'satellite' | 'terrain';
+
 export interface RouteResolvedInfo {
   source: RouteSource;
   distanceMeters?: number;
@@ -61,9 +66,38 @@ export interface MapViewProps {
   pickedLocation?: GeoPoint | null;
   onLocationSelect?: (point: GeoPoint) => void;
   onMarkerPress?: (id: string) => void;
+  /**
+   * Reports the map's centre whenever it settles, so a host can tell
+   * whether the view still sits on some point of interest — the "am I
+   * looking at my own location" test behind the locate button's filled
+   * state. Only the map itself knows where it has been dragged to.
+   */
+  onCenterChanged?: (point: GeoPoint) => void;
   onRouteResolved?: (info: RouteResolvedInfo) => void;
   /** When false, panning/zooming/tapping the map is disabled — used for small preview maps. */
   interactive?: boolean;
+  /** Basemap to draw. Defaults to the standard street map. */
+  mapLayer?: MapLayer;
+  /**
+   * Bump this number to snap the camera back to `latitude`/`longitude`.
+   *
+   * A plain prop change can't express "go back to where you already are":
+   * once someone has panned away by hand, React's centre props haven't
+   * changed, so nothing re-fires. An incrementing token is the signal that
+   * a recentre was *asked for*, independent of whether the target moved.
+   */
+  recenterSignal?: number;
+  /**
+   * Fires true while a finger is down on the map, false when it lifts.
+   *
+   * A map inside a ScrollView is otherwise unusable: the ScrollView claims
+   * every vertical drag for itself, so trying to pan the map scrolls the
+   * page instead. Hosts feed this straight into their ScrollView's
+   * `scrollEnabled` to hand the gesture over for the duration of the touch.
+   * Never fires on a non-interactive map — locking the page to pan a static
+   * preview would be the same bug in reverse.
+   */
+  onTouchActiveChange?: (active: boolean) => void;
   style?: StyleProp<ViewStyle>;
 }
 
@@ -74,6 +108,7 @@ type BridgeMessage =
   | { type: 'error'; message: string }
   | { type: 'markerPress'; id: string }
   | { type: 'mapPress'; latitude: number; longitude: number }
+  | { type: 'centerChanged'; latitude: number; longitude: number }
   | { type: 'routeReady'; source: RouteSource; distanceMeters?: number; durationSeconds?: number };
 
 /**
@@ -96,8 +131,12 @@ export function MapView({
   pickedLocation,
   onLocationSelect,
   onMarkerPress,
+  onCenterChanged,
   onRouteResolved,
   interactive = true,
+  mapLayer = 'standard',
+  recenterSignal = 0,
+  onTouchActiveChange,
   style,
 }: MapViewProps) {
   const { t } = useTranslation();
@@ -178,6 +217,25 @@ export function MapView({
 
   useEffect(() => {
     if (!isReady) return;
+    webviewRef.current?.injectJavaScript(
+      `window.__setLayer(${JSON.stringify(mapLayer)}); true;`
+    );
+  }, [isReady, mapLayer]);
+
+  useEffect(() => {
+    // Skips the initial mount: the page already opens on this centre, and
+    // animating to it on load would be a visible twitch.
+    if (!isReady || !recenterSignal) return;
+    webviewRef.current?.injectJavaScript(
+      `window.__recenter(${latitude}, ${longitude}); true;`
+    );
+    // Deliberately keyed on the signal alone — a change of centre is the
+    // other effect's job, this one only answers an explicit request.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isReady, recenterSignal]);
+
+  useEffect(() => {
+    if (!isReady) return;
     webviewRef.current?.injectJavaScript(`window.__setPickable(${pickable}); true;`);
   }, [isReady, pickable]);
 
@@ -220,6 +278,8 @@ export function MapView({
         onMarkerPress?.(message.id);
       } else if (message.type === 'mapPress') {
         onLocationSelect?.({ latitude: message.latitude, longitude: message.longitude });
+      } else if (message.type === 'centerChanged') {
+        onCenterChanged?.({ latitude: message.latitude, longitude: message.longitude });
       } else if (message.type === 'routeReady') {
         onRouteResolved?.({
           source: message.source,
@@ -234,8 +294,20 @@ export function MapView({
 
   const showError = loadFailed || (timedOut && !isReady);
 
+  // `onTouch*` rather than the responder system: these observe the gesture
+  // without claiming it, so the WebView underneath still receives every
+  // touch and pans normally.
+  const handleTouchActive = (active: boolean) => {
+    if (interactive) onTouchActiveChange?.(active);
+  };
+
   return (
-    <View style={[styles.container, style]}>
+    <View
+      style={[styles.container, style]}
+      onTouchStart={() => handleTouchActive(true)}
+      onTouchEnd={() => handleTouchActive(false)}
+      onTouchCancel={() => handleTouchActive(false)}
+    >
       <WebView
         key={reloadKey}
         ref={webviewRef}
@@ -336,40 +408,121 @@ function buildMapHtml(lat: number, lng: number, zoom: number): string {
 <style>${LEAFLET_CSS}</style>
 <style>
   html, body, #map { height: 100%; width: 100%; margin: 0; padding: 0; background: ${colors.background}; }
-  .leaflet-tile-pane { filter: invert(1) hue-rotate(180deg) brightness(0.95) contrast(0.9) saturate(0.6); }
+  /* Per-layer, set by __setLayer. A single blanket filter here used to
+     invert every basemap to fake a dark theme — which turned satellite
+     photography into a washed-out negative. Imagery gets left alone. */
+  .leaflet-tile-pane { filter: var(--tile-filter, none); }
   .leaflet-control-attribution, .leaflet-control-zoom { display: none !important; }
+  /* The price sits on a raised tablet above its pin. Gradient plus an inset
+     top highlight and bottom shade give it a lit face and a thickness,
+     rather than the flat chip it used to be. */
   .price-pin {
-    background: ${colors.primary};
+    background: linear-gradient(180deg, #FFC24A 0%, ${colors.primary} 55%, #E0900F 100%);
     color: ${colors.textOnPrimary};
-    font-weight: 700;
-    font-size: 12px;
+    font-weight: 800;
+    font-size: 10px;
     font-family: -apple-system, Roboto, sans-serif;
-    padding: 5px 9px;
+    padding: 3px 3px;
     border-radius: 14px;
-    box-shadow: 0 2px 10px rgba(245, 166, 35, 0.55);
+    margin-bottom: -4px;
+    box-shadow:
+      0 6px 14px rgba(0, 0, 0, 0.5),
+      0 0 10px rgba(245, 166, 35, 0.35),
+      inset 0 1px 0 rgba(255, 255, 255, 0.45),
+      inset 0 -2px 0 rgba(0, 0, 0, 0.18);
     white-space: nowrap;
     text-align: center;
     display: inline-block;
   }
   .price-pin.selected {
-    background: ${colors.secondary};
+    background: linear-gradient(180deg, #5BF0D8 0%, ${colors.secondary} 55%, #17A08F 100%);
     color: ${colors.textOnSecondary};
-    box-shadow: 0 2px 10px rgba(45, 212, 191, 0.55);
+    box-shadow:
+      0 6px 14px rgba(0, 0, 0, 0.5),
+      0 0 12px rgba(45, 212, 191, 0.45),
+      inset 0 1px 0 rgba(255, 255, 255, 0.45),
+      inset 0 -2px 0 rgba(0, 0, 0, 0.18);
   }
-  .price-pin-wrap { position: relative; display: inline-block; }
-  .price-pin-wrap:after {
-    content: '';
+  .price-pin-wrap {
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+  }
+  /* The spot itself, as a little house. It floats rather than spins — a
+     rotating building reads as broken, where a hover reads as a 3D object
+     sitting above the map. Transform-only, so it stays on the compositor
+     and a mapful of them costs the GPU rather than the JS thread.
+     No backticks in this stylesheet: it is a JS template literal, and one
+     would terminate the string. */
+  .map-pin {
+    width: 34px;
+    height: 25px;
+    animation: pinFloat 3s ease-in-out infinite;
+  }
+  .map-pin svg { display: block; width: 100%; height: 100%; }
+  /* A pool of lamplight on the ground rather than a grey shadow — the same
+     light the whole app is built around, and it lifts the pin off the map
+     tiles far better than a dark blur can on a dark basemap.
+     Stays amber under the teal selected pin: the ground light is sodium
+     lamplight, it doesn't change colour with what's standing in it. */
+  .pin-shadow {
+    width: 30px;
+    height: 11px;
+    margin-top: -3px;
+    border-radius: 50%;
+    background: radial-gradient(
+      ellipse at center,
+      rgba(245, 166, 35, 0.75) 0%,
+      rgba(245, 166, 35, 0.34) 42%,
+      rgba(245, 166, 35, 0) 72%
+    );
+    animation: pinShadow 2.6s linear infinite;
+  }
+  /* The chosen one turns faster, so selection still reads at a glance now
+     that motion alone no longer distinguishes it. */
+  .price-pin-wrap.selected .map-pin {
+    animation-duration: 1.7s;
+  }
+  .price-pin-wrap.selected .pin-shadow {
+    animation-duration: 1.7s;
+  }
+  @keyframes pinFloat {
+    0%, 100% { transform: translateY(0); }
+    50%      { transform: translateY(-4px); }
+  }
+  /* Squashes as the pin goes edge-on. Without this the spin reads as a
+     wobble rather than as a solid object turning. */
+  @keyframes pinShadow {
+    0%, 100% { transform: scale(1); opacity: 1; }
+    50%      { transform: scale(0.82); opacity: 0.75; }
+  }
+  /* Where you are: a car sitting in a pool of lamplight. The old amber
+     dot was indistinguishable from a listing's own marker colour. */
+  .me-wrap {
+    width: 54px; height: 54px;
+    display: flex; align-items: center; justify-content: center;
+  }
+  .me-pool {
     position: absolute;
-    left: 50%;
-    margin-left: -5px;
-    bottom: -6px;
-    border-width: 6px 5px 0 5px;
-    border-style: solid;
-    border-color: ${colors.primary} transparent transparent transparent;
+    width: 54px; height: 54px; border-radius: 50%;
+    background: radial-gradient(
+      circle at center,
+      rgba(245, 166, 35, 0.40) 0%,
+      rgba(245, 166, 35, 0.16) 45%,
+      rgba(245, 166, 35, 0) 72%
+    );
   }
-  .price-pin-wrap.selected:after {
-    border-color: ${colors.secondary} transparent transparent transparent;
+  /* The artwork points right in its own space; -90deg faces it north.
+     We have no heading to steer by, so "up" is the honest default — a car
+     pointing an arbitrary direction would imply information we don't have. */
+  .me-car {
+    position: relative;
+    width: 20px;
+    height: 35px;
+    transform: rotate(-90deg);
   }
+  .me-car svg { display: block; width: 100%; height: 100%; }
   .dot-outer {
     width: 22px; height: 22px; border-radius: 11px;
     background: rgba(245, 166, 35, 0.25);
@@ -425,7 +578,84 @@ function buildMapHtml(lat: number, lng: number, zoom: number): string {
 
   function initMap() {
   var map = L.map('map', { zoomControl: false, attributionControl: false }).setView([${lat}, ${lng}], ${zoom});
-  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 19 }).addTo(map);
+  // Three basemaps, all key-less.
+  //
+  // Each provider has its own usage policy and all of them want
+  // attribution. OSM's in particular asks that heavy or commercial traffic
+  // not hit their volunteer-run tile servers — see the note in MapViewProps
+  // above the layer switcher on the renter's map. Moving to a paid provider
+  // (MapTiler, Thunderforest, Mapbox) is a key swap here, nothing more.
+  var LAYERS = {
+    // OpenStreetMap, graded to dark.
+    //
+    // Purpose-built dark basemaps were tried and rejected: CARTO's now
+    // serve an "API KEY REQUIRED" watermark, and Esri's Dark Gray Canvas is
+    // too sparse to navigate by — it drops most of the road network. This
+    // inversion keeps OSM's roads, parks and water legible while sitting
+    // correctly in a dark app. A keyed provider (MapTiler, Mapbox) is the
+    // upgrade path if a closer match to Google's styling is wanted.
+    standard: {
+      url: 'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',
+      options: { maxZoom: 19, attribution: '(c) OpenStreetMap' },
+      filter: 'invert(1) hue-rotate(180deg) brightness(0.95) contrast(0.9) saturate(0.6)',
+    },
+    // Never filtered: it is a photograph. Inversion or heavy grading here
+    // is what made this look nothing like the imagery people expect.
+    satellite: {
+      url: 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
+      options: { maxZoom: 19, attribution: 'Esri, Maxar, Earthstar Geographics' },
+      filter: null,
+    },
+    // A light topo sheet. Dimmed a little so it does not glare out of a
+    // dark app, but not inverted — inverted contour lines are unreadable.
+    terrain: {
+      url: 'https://{s}.tile.opentopomap.org/{z}/{x}/{y}.png',
+      options: { maxZoom: 17, attribution: '(c) OpenTopoMap, (c) OpenStreetMap' },
+      filter: 'brightness(0.82) saturate(0.85) contrast(1.05)',
+    },
+  };
+
+  var activeTiles = null;
+  var activeLayerName = null;
+
+  window.__setLayer = function (name) {
+    var next = LAYERS[name] ? name : 'standard';
+    if (next === activeLayerName) return;
+    var spec = LAYERS[next];
+    var incoming = L.tileLayer(spec.url, spec.options);
+    // Added beneath the old one and only then is the old one dropped:
+    // removing first leaves the map briefly empty, which reads as a flash
+    // of broken map every time the layer changes.
+    incoming.addTo(map);
+    incoming.bringToBack();
+    document.documentElement.style.setProperty('--tile-filter', spec.filter || 'none');
+    if (activeTiles) map.removeLayer(activeTiles);
+    activeTiles = incoming;
+    activeLayerName = next;
+  };
+
+  window.__setLayer('standard');
+
+  // Reports where the map is looking once a gesture settles, so the host
+  // can tell whether the view is still on the user's own location.
+  //
+  // 'moveend' rather than 'move': it fires once a pan or zoom finishes,
+  // instead of on every frame, keeping this to one bridge message per
+  // interaction rather than dozens.
+  function reportCenter() {
+    var c = map.getCenter();
+    post({ type: 'centerChanged', latitude: c.lat, longitude: c.lng });
+  }
+  map.on('moveend', reportCenter);
+
+  window.__recenter = function (lat, lng) {
+    // Keeps whatever zoom the person has chosen — a recentre is "take me
+    // back to me", not "start over".
+    map.panTo([lat, lng], { animate: true, duration: 0.45 });
+  };
+
+  var CAR_ART = ${JSON.stringify(CAR_MARKER_SVG)};
+  var HOUSE_ART = ${JSON.stringify(HOUSE_MARKER_SVG)};
 
   var markerLayer = L.layerGroup().addTo(map);
   var routeLayer = null;
@@ -437,19 +667,29 @@ function buildMapHtml(lat: number, lng: number, zoom: number): string {
     var cls = 'price-pin-wrap' + (selected ? ' selected' : '');
     var pinCls = 'price-pin' + (selected ? ' selected' : '');
     return L.divIcon({
-      html: '<div class="' + cls + '"><div class="' + pinCls + '">' + (label || '') + '</div></div>',
+      html:
+        '<div class="' + cls + '">' +
+          '<div class="' + pinCls + '">' + (label || '') + '</div>' +
+          '<div class="map-pin">' + HOUSE_ART + '</div>' +
+          '<div class="pin-shadow"></div>' +
+        '</div>',
       className: '',
-      iconSize: [64, 30],
-      iconAnchor: [32, 36],
+      // Tall enough for tablet + house + pool, anchored at the very bottom
+      // so the pool — where the house meets the ground — marks the real
+      // coordinate rather than the tablet floating above it.
+      iconSize: [74, 72],
+      iconAnchor: [37, 70],
     });
   }
 
-  function dotIcon() {
+  function meIcon() {
     return L.divIcon({
-      html: '<div class="dot-outer"><div class="dot-inner"></div></div>',
+      html:
+        '<div class="me-wrap"><div class="me-pool"></div>' +
+        '<div class="me-car">' + CAR_ART + '</div></div>',
       className: '',
-      iconSize: [22, 22],
-      iconAnchor: [11, 11],
+      iconSize: [20, 20],
+      iconAnchor: [27, 27],
     });
   }
 
@@ -503,7 +743,7 @@ function buildMapHtml(lat: number, lng: number, zoom: number): string {
   window.__setUserLocation = function (loc) {
     if (userLocationMarker) { map.removeLayer(userLocationMarker); userLocationMarker = null; }
     if (!loc) return;
-    userLocationMarker = L.marker([loc.latitude, loc.longitude], { icon: dotIcon(), zIndexOffset: 1000 }).addTo(map);
+    userLocationMarker = L.marker([loc.latitude, loc.longitude], { icon: meIcon(), zIndexOffset: 1000 }).addTo(map);
   };
 
   window.__setRoute = function (route) {
@@ -515,9 +755,9 @@ function buildMapHtml(lat: number, lng: number, zoom: number): string {
   function drawRoute(origin, destination) {
     var straight = L.polyline(
       [[origin.latitude, origin.longitude], [destination.latitude, destination.longitude]],
-      { color: '${colors.secondary}', weight: 3, dashArray: '6,8', opacity: 0.85 }
+      { color: '${colors.primary}', weight: 3, dashArray: '6,8', opacity: 0.85 }
     );
-    var originMarker = L.marker([origin.latitude, origin.longitude], { icon: dotIcon() });
+    var originMarker = L.marker([origin.latitude, origin.longitude], { icon: meIcon() });
     var destMarker = L.marker([destination.latitude, destination.longitude], {
       icon: priceIcon(destination.label, false),
     });
@@ -541,7 +781,7 @@ function buildMapHtml(lat: number, lng: number, zoom: number): string {
         var route0 = data && data.routes && data.routes[0];
         if (!route0) throw new Error('no route in response');
         var coords = route0.geometry.coordinates.map(function (c) { return [c[1], c[0]]; });
-        var real = L.polyline(coords, { color: '${colors.secondary}', weight: 4, opacity: 0.95 });
+        var real = L.polyline(coords, { color: '${colors.primary}', weight: 5, opacity: 0.95 });
         routeLayer.removeLayer(straight);
         routeLayer.addLayer(real);
         real.bringToBack();

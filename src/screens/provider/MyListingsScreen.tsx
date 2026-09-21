@@ -5,7 +5,9 @@ import { useFocusEffect } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { ListingCard } from '../../components/ListingCard';
+import { BrandFooter } from '../../components/BrandFooter';
 import { ConfirmDialog } from '../../components/ConfirmDialog';
+import { EmptyState } from '../../components/EmptyState';
 import { Toggle } from '../../components/Toggle';
 import { colors, radius, spacing, typography } from '../../theme';
 import { ProviderListingsStackParamList } from '../../navigation/types';
@@ -167,7 +169,15 @@ export function MyListingsScreen({ navigation }: Props) {
           </View>
         )}
         ListEmptyComponent={
-          <Text style={styles.emptyText}>{t('listings.empty')}</Text>
+          <EmptyState
+            icon="business-outline"
+            title={t('listings.emptyTitle')}
+            body={t('listings.emptyBody')}
+            action={{
+              label: t('listings.addFirst'),
+              onPress: () => navigation.navigate('AddListingDetails', {}),
+            }}
+          />
         }
       />
 
@@ -201,6 +211,7 @@ export function MyListingsScreen({ navigation }: Props) {
         confirmLabel={t('common.ok')}
         onConfirm={() => setDeleteError(null)}
       />
+      <BrandFooter height={88} />
     </SafeAreaView>
   );
 }
@@ -219,7 +230,7 @@ const styles = StyleSheet.create({
     paddingBottom: spacing.md,
   },
   title: {
-    ...typography.h1,
+    ...typography.displayLarge,
     color: colors.textPrimary,
   },
   subtitle: {
@@ -275,11 +286,5 @@ const styles = StyleSheet.create({
     backgroundColor: colors.primaryMuted,
     alignItems: 'center',
     justifyContent: 'center',
-  },
-  emptyText: {
-    ...typography.body,
-    color: colors.textMuted,
-    textAlign: 'center',
-    marginTop: spacing.xl,
   },
 });

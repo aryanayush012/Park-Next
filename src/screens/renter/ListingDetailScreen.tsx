@@ -14,6 +14,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { Button } from '../../components/Button';
+import { PinLoader } from '../../components/PinLoader';
 import { AmenityBadge } from '../../components/AmenityBadge';
 import { StarRating } from '../../components/StarRating';
 import { MapView } from '../../components/MapView';
@@ -67,7 +68,7 @@ export function ListingDetailScreen({ navigation, route }: Props) {
   if (!listing) {
     return (
       <SafeAreaView style={styles.loadingContainer}>
-        <Text style={styles.loadingText}>{t('detail.loadingSpot')}</Text>
+        <PinLoader label={t('detail.loadingSpot')} />
       </SafeAreaView>
     );
   }
@@ -170,7 +171,9 @@ export function ListingDetailScreen({ navigation, route }: Props) {
                 latitude: listing.latitude,
                 longitude: listing.longitude,
                 label: `${listing.currency}${listing.pricePerHour}`,
-                selected: true,
+                // Not `selected`: that turns the marker teal, which only
+                // means "the one you picked out of several". This map shows
+                // exactly one spot, so it wears the brand amber.
               },
             ]}
             style={styles.mapPreview}
@@ -201,6 +204,7 @@ export function ListingDetailScreen({ navigation, route }: Props) {
           onPress={handleBookNow}
         />
       </View>
+
     </View>
   );
 }
@@ -215,10 +219,6 @@ const styles = StyleSheet.create({
     backgroundColor: colors.background,
     alignItems: 'center',
     justifyContent: 'center',
-  },
-  loadingText: {
-    ...typography.body,
-    color: colors.textSecondary,
   },
   gallery: {
     height: GALLERY_HEIGHT,

@@ -4,6 +4,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { Button } from '../../components/Button';
+import { BrandFooter } from '../../components/BrandFooter';
 import { SelectableChip } from '../../components/SelectableChip';
 import { useTranslation } from '../../i18n';
 import { colors, radius, spacing, typography } from '../../theme';
@@ -119,6 +120,7 @@ export function AddListingAmenitiesPhotosScreen({ navigation, route }: Props) {
           disabled={photos.length === 0}
         />
       </View>
+      <BrandFooter height={84} />
     </SafeAreaView>
   );
 }
