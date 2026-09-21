@@ -3,80 +3,825 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>ParkNext</title>
-<meta name="description" content="Rent a parking space by the hour, or earn from the one you already have.">
-<link rel="icon" href="/icon.png">
+<title>ParkNext — Park smart. Live better.</title>
+<meta name="description" content="Rent a parking space by the hour, or earn from the one you already have. Live map, 4-digit arrival code, no commission — you pay the host directly.">
+<meta name="theme-color" content="#0B0D12">
+<link rel="icon" href="./favicon.png">
+<link rel="apple-touch-icon" href="./apple-touch-icon.png">
+<meta property="og:title" content="ParkNext — Park smart. Live better.">
+<meta property="og:description" content="Rent a parking space by the hour, or earn from the one you already have.">
+<meta property="og:image" content="https://park-next.in/og-image.png">
+<meta property="og:url" content="https://park-next.in/">
+<meta property="og:type" content="website">
+<meta name="twitter:card" content="summary_large_image">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
 <style>
-  :root {
-    --amber: #FBB112;
-    --graphite: #39424F;
-    --ink: #1B1F27;
-    --ink-soft: #4A515E;
-  }
-  * { box-sizing: border-box; }
-  html, body { height: 100%; }
-  body {
-    margin: 0;
-    display: flex;
-    flex-direction: column;
-    background: var(--amber);
-    color: var(--graphite);
-    font: 16px/1.6 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
-    -webkit-text-size-adjust: 100%;
-  }
-  main {
-    flex: 1;
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    justify-content: center;
-    text-align: center;
-    padding: 48px 24px;
-  }
-  img.wordmark {
-    width: min(72vw, 340px);
-    height: auto;
-    display: block;
-  }
-  p.tagline {
-    margin: 28px 0 0;
-    font-size: 18px;
-    max-width: 30ch;
-    color: var(--graphite);
-  }
-  p.status {
-    margin: 10px 0 0;
-    font-size: 15px;
-    opacity: 0.72;
-  }
-  footer {
-    padding: 24px;
-    text-align: center;
-    font-size: 14px;
-  }
-  footer a {
-    color: var(--graphite);
-    text-decoration: underline;
-    text-underline-offset: 3px;
-    margin: 0 10px;
-    display: inline-block;
-  }
-  footer a:hover { color: var(--ink); }
+:root{
+  --ground:#0B0D12; --panel:#0F1012; --surface:#161922; --surface-2:#1B1F2A;
+  --line:#242A36; --line-soft:#1D222C;
+  --amber:#FAB81A; --amber-hi:#FBD73B; --amber-deep:#EE951C;
+  --text:#F5F6F8; --muted:#9CA3AF; --faint:#6B7280;
+  --road:#101115; --lane:#F8F1E0;
+  --r:18px; --rl:26px;
+  --ease:cubic-bezier(.22,.61,.36,1);
+}
+*{box-sizing:border-box;margin:0;padding:0}
+html{scroll-behavior:smooth}
+body{
+  background:var(--ground); color:var(--text);
+  font:400 16px/1.65 'Poppins',-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;
+  -webkit-font-smoothing:antialiased; overflow-x:hidden;
+}
+a{color:inherit;text-decoration:none}
+svg[hidden]{display:none!important}
+.wrap{width:min(1180px,92vw);margin-inline:auto}
+.eyebrow{
+  display:inline-flex;align-items:center;gap:8px;font-size:12.5px;font-weight:500;
+  letter-spacing:.14em;text-transform:uppercase;color:var(--amber);
+  border:1px solid rgba(250,184,26,.28);background:rgba(250,184,26,.07);
+  padding:7px 14px;border-radius:99px;
+}
+.eyebrow i{width:6px;height:6px;border-radius:99px;background:var(--amber);
+  box-shadow:0 0 0 0 rgba(250,184,26,.6);animation:ping 2.4s infinite}
+@keyframes ping{0%{box-shadow:0 0 0 0 rgba(250,184,26,.55)}70%{box-shadow:0 0 0 9px rgba(250,184,26,0)}100%{box-shadow:0 0 0 0 rgba(250,184,26,0)}}
+h1,h2,h3{letter-spacing:-.02em;line-height:1.1;font-weight:700}
+h1{font-size:clamp(38px,6.4vw,70px);font-weight:800}
+h2{font-size:clamp(28px,4.2vw,46px)}
+h3{font-size:19px;letter-spacing:-.01em}
+.amber{color:var(--amber)}
+.lede{color:var(--muted);font-size:clamp(16px,1.5vw,19px);max-width:52ch}
+
+/* ---------- nav ---------- */
+#prog{position:fixed;top:0;left:0;height:2px;width:0;z-index:70;
+  background:linear-gradient(90deg,var(--amber-deep),var(--amber-hi));transition:width .1s linear}
+nav{position:fixed;inset:0 0 auto;z-index:60;transition:background .3s,border-color .3s,backdrop-filter .3s;
+  border-bottom:1px solid transparent}
+nav.stuck{background:rgba(11,13,18,.82);backdrop-filter:blur(16px);border-bottom-color:var(--line-soft)}
+.nav-in{display:flex;align-items:center;gap:26px;height:70px}
+.brand{display:flex;align-items:center;gap:11px;margin-right:auto}
+.brand img.m{width:32px;height:32px;object-fit:contain;filter:drop-shadow(0 3px 10px rgba(250,184,26,.25))}
+.brand img.w{height:20px;width:auto}
+.nav-links{display:flex;gap:26px;font-size:14.5px;color:var(--muted)}
+.nav-links a{transition:color .2s}
+.nav-links a:hover{color:var(--text)}
+.btn{
+  display:inline-flex;align-items:center;justify-content:center;gap:10px;
+  font-weight:600;font-size:15px;padding:13px 22px;border-radius:14px;border:1px solid transparent;
+  transition:transform .25s var(--ease),box-shadow .25s var(--ease),background .25s,border-color .25s;
+  cursor:pointer;
+}
+.btn-primary{background:linear-gradient(180deg,var(--amber-hi),var(--amber-deep));color:#14100A;
+  box-shadow:0 10px 26px -10px rgba(250,184,26,.7), inset 0 1px 0 rgba(255,255,255,.35)}
+.btn-primary:hover{transform:translateY(-2px);box-shadow:0 16px 34px -12px rgba(250,184,26,.85), inset 0 1px 0 rgba(255,255,255,.4)}
+.btn-ghost{border-color:var(--line);color:var(--text);background:rgba(255,255,255,.02)}
+.btn-ghost:hover{border-color:#3A4150;background:rgba(255,255,255,.05);transform:translateY(-2px)}
+.btn-sm{padding:10px 17px;font-size:14px;border-radius:12px}
+
+/* ---------- 3D road backdrop ---------- */
+.road-scene{position:absolute;inset:auto 0 -10% 0;height:34%;perspective:420px;perspective-origin:50% 0%;
+  pointer-events:none;z-index:0;overflow:hidden;
+  mask-image:linear-gradient(transparent,#000 42%,#000 78%,transparent);
+  -webkit-mask-image:linear-gradient(transparent,#000 42%,#000 78%,transparent)}
+.road{position:absolute;left:50%;bottom:-70%;width:150%;height:210%;transform:translateX(-50%) rotateX(77deg);
+  transform-origin:50% 100%;
+  background:
+    repeating-linear-gradient(90deg, transparent 0 15.5%, rgba(250,184,26,.10) 15.5% 15.75%, transparent 15.75% 31%),
+    repeating-linear-gradient(0deg, rgba(248,241,224,.22) 0 2%, transparent 2% 7%);
+  background-size:100% 100%, 100% 300px;
+  animation:roadrun 3.4s linear infinite;
+  opacity:.26;
+}
+@keyframes roadrun{to{background-position:0 0, 0 300px}}
+.glowfield{position:absolute;inset:0;pointer-events:none;z-index:0;
+  background:
+    radial-gradient(760px 520px at 18% 34%, rgba(250,184,26,.13), transparent 66%),
+    radial-gradient(900px 640px at 84% 12%, rgba(238,149,28,.08), transparent 70%)}
+
+/* ---------- hero ---------- */
+header.hero{position:relative;padding:128px 0 78px;overflow:hidden}
+.hero-grid{position:relative;z-index:2;display:grid;grid-template-columns:1.06fr .94fr;gap:56px;align-items:center}
+.hero h1{margin:22px 0 18px}
+.hero .lede{margin-bottom:34px}
+.cta-row{display:flex;gap:16px;align-items:stretch;flex-wrap:wrap}
+.store{display:flex;align-items:center;gap:13px;padding:13px 22px 13px 18px;border-radius:16px;
+  background:linear-gradient(180deg,#1C212C,#13161E);border:1px solid var(--line);
+  transition:transform .3s var(--ease),border-color .3s,box-shadow .3s}
+.store:hover{transform:translateY(-3px);border-color:#3A4150;box-shadow:0 18px 36px -18px rgba(0,0,0,.9)}
+.store .sub{display:block;font-size:11px;letter-spacing:.1em;text-transform:uppercase;color:var(--faint);line-height:1.4}
+.store .main{display:block;font-size:17px;font-weight:600;letter-spacing:-.01em}
+.store .ic{width:34px;height:34px;flex:none;display:grid;place-items:center;border-radius:11px;}
+.store.soon{opacity:.62}
+.store.soon .main{color:var(--muted)}
+.qr-card{display:flex;align-items:center;gap:15px;padding:12px 18px 12px 12px;border-radius:16px;
+  background:var(--surface);border:1px solid var(--line)}
+.qr-card svg{width:74px;height:74px;background:#fff;border-radius:9px;padding:5px;flex:none}
+.qr-card p{font-size:12.5px;line-height:1.45;color:var(--muted);max-width:15ch}
+.qr-card b{display:block;color:var(--text);font-size:13.5px;font-weight:600}
+.fineprint{margin-top:22px;font-size:13.5px;color:var(--faint);display:flex;gap:18px;flex-wrap:wrap}
+.fineprint span{display:inline-flex;align-items:center;gap:7px}
+.fineprint svg{width:15px;height:15px;stroke:var(--amber);fill:none;stroke-width:2.2}
+
+/* ---------- 3D phone ---------- */
+.stage{perspective:1400px;perspective-origin:55% 45%;display:grid;place-items:center}
+.phone{
+  --rx:6deg; --ry:-17deg;
+  position:relative;width:296px;height:606px;transform-style:preserve-3d;
+  transform:rotateX(var(--rx)) rotateY(var(--ry));
+  transition:transform .5s var(--ease);
+}
+.phone .body{position:absolute;inset:0;border-radius:44px;background:linear-gradient(150deg,#2B313D,#0E1116 48%,#232936);
+  padding:9px;box-shadow:0 60px 90px -40px rgba(0,0,0,.95), 0 0 0 1px rgba(255,255,255,.05);
+  transform-style:preserve-3d}
+.phone .screen{position:absolute;inset:9px;border-radius:36px;overflow:hidden;background:var(--ground);
+  transform:translateZ(1px)}
+.phone .notch{position:absolute;top:16px;left:50%;transform:translateX(-50%) translateZ(3px);
+  width:92px;height:22px;border-radius:99px;background:#07090C;z-index:5}
+.phone .glare{position:absolute;inset:0;border-radius:44px;pointer-events:none;transform:translateZ(6px);
+  background:linear-gradient(115deg,rgba(255,255,255,.14) 0%,rgba(255,255,255,0) 32%,rgba(255,255,255,0) 70%,rgba(255,255,255,.05) 100%)}
+.phone .halo{position:absolute;inset:-14%;border-radius:60px;transform:translateZ(-60px);
+  background:radial-gradient(closest-side,rgba(250,184,26,.24),transparent 72%);filter:blur(22px)}
+.float{animation:float 7s ease-in-out infinite}
+@keyframes float{0%,100%{transform:translateY(0)}50%{transform:translateY(-14px)}}
+
+/* app screen: map */
+.scr{position:absolute;inset:0;font-size:12px}
+.map{position:absolute;inset:0;background:#12161C}
+.map .streets{position:absolute;inset:-20%;
+  background:
+    repeating-linear-gradient(0deg,transparent 0 58px,#1B222C 58px 62px),
+    repeating-linear-gradient(90deg,transparent 0 74px,#1B222C 74px 78px);
+  transform:rotate(-8deg)}
+.map .main-rd{position:absolute;left:-10%;right:-10%;top:38%;height:13px;background:#232B37;transform:rotate(-8deg)}
+.map .main-rd::after{content:'';position:absolute;inset:50% 0 auto;height:1.5px;transform:translateY(-50%);
+  background:repeating-linear-gradient(90deg,rgba(248,241,224,.5) 0 12px,transparent 12px 26px)}
+.pin{position:absolute;width:26px;height:26px;transform:translate(-50%,-100%) scale(0);
+  animation:drop .5s var(--ease) forwards}
+.pin svg{width:100%;height:100%;filter:drop-shadow(0 4px 8px rgba(0,0,0,.6))}
+@keyframes drop{0%{transform:translate(-50%,-160%) scale(.4);opacity:0}
+  60%{transform:translate(-50%,-92%) scale(1.06);opacity:1}
+  100%{transform:translate(-50%,-100%) scale(1);opacity:1}}
+.me{position:absolute;left:48%;top:58%;width:14px;height:14px;border-radius:99px;background:#5AA9FF;
+  border:2.5px solid #fff;box-shadow:0 0 0 0 rgba(90,169,255,.5);animation:ping2 2.6s infinite}
+@keyframes ping2{0%{box-shadow:0 0 0 0 rgba(90,169,255,.5)}70%{box-shadow:0 0 0 18px rgba(90,169,255,0)}100%{box-shadow:0 0 0 0 rgba(90,169,255,0)}}
+.topbar{position:absolute;top:44px;left:12px;right:12px;display:flex;gap:8px;z-index:4}
+.search{flex:1;display:flex;align-items:center;gap:8px;height:38px;padding:0 13px;border-radius:12px;
+  background:rgba(22,25,34,.92);border:1px solid var(--line);color:var(--muted);font-size:11.5px;
+  backdrop-filter:blur(8px)}
+.chipbar{position:absolute;top:92px;left:12px;right:12px;display:flex;gap:7px;z-index:4}
+.chip{font-size:10.5px;padding:6px 11px;border-radius:99px;background:rgba(22,25,34,.92);
+  border:1px solid var(--line);color:var(--muted);white-space:nowrap}
+.chip.on{background:var(--amber);color:#14100A;border-color:transparent;font-weight:600}
+.sheet{position:absolute;left:0;right:0;bottom:0;height:47%;background:var(--surface);
+  border-radius:22px 22px 0 0;border-top:1px solid var(--line);padding:10px 13px;z-index:4;
+  box-shadow:0 -22px 44px -20px rgba(0,0,0,.9)}
+.sheet .grab{width:38px;height:4px;border-radius:99px;background:#39414F;margin:2px auto 12px}
+.sheet .hd{display:flex;justify-content:space-between;align-items:center;margin-bottom:11px}
+.sheet .hd b{font-size:13px}
+.sheet .hd span{font-size:10.5px;color:var(--amber);border:1px solid rgba(250,184,26,.3);
+  padding:4px 9px;border-radius:99px}
+.lcard{display:flex;gap:10px;padding:9px;border-radius:14px;background:var(--surface-2);
+  border:1px solid var(--line-soft);margin-bottom:9px}
+.lcard .ph{width:52px;height:52px;border-radius:10px;flex:none;
+  background:linear-gradient(135deg,#2A313D,#1A1F29);position:relative;overflow:hidden}
+.lcard .ph::after{content:'';position:absolute;inset:0;
+  background:repeating-linear-gradient(115deg,transparent 0 9px,rgba(255,255,255,.035) 9px 18px)}
+.lcard .t{font-size:11.5px;font-weight:600;line-height:1.35}
+.lcard>div:nth-child(2){min-width:0}
+.lcard .s{font-size:10px;color:var(--faint);margin-top:2px}
+.lcard .p{margin-left:auto;text-align:right;font-size:12.5px;font-weight:700;color:var(--amber);white-space:nowrap}
+.lcard .p i{display:block;font-style:normal;font-size:9.5px;color:var(--faint);font-weight:400;white-space:nowrap}
+
+/* ---------- marquee ---------- */
+.ticker{position:relative;z-index:3;border-block:1px solid var(--line-soft);background:rgba(15,16,18,.6);
+  overflow:hidden;padding:15px 0;margin-top:20px}
+.tick-in{display:flex;gap:44px;width:max-content;animation:slide 26s linear infinite}
+.ticker:hover .tick-in{animation-play-state:paused}
+@keyframes slide{to{transform:translateX(-50%)}}
+.tick-in span{display:inline-flex;align-items:center;gap:11px;font-size:14px;color:var(--muted);white-space:nowrap}
+.tick-in span::before{content:'';width:5px;height:5px;border-radius:99px;background:var(--amber)}
+
+/* ---------- sections ---------- */
+section{position:relative;padding:104px 0}
+.shead{max-width:640px;margin-bottom:52px}
+.shead h2{margin:16px 0 14px}
+.grid3{display:grid;grid-template-columns:repeat(3,1fr);gap:22px}
+.grid2{display:grid;grid-template-columns:repeat(2,1fr);gap:22px}
+
+/* tilt cards */
+.card{
+  position:relative;padding:30px 26px 28px;border-radius:var(--rl);
+  background:linear-gradient(170deg,var(--surface),#111520);
+  border:1px solid var(--line);transform-style:preserve-3d;
+  transition:transform .35s var(--ease),border-color .35s,box-shadow .35s;
+  will-change:transform;overflow:hidden;
+}
+.card::before{content:'';position:absolute;inset:0;opacity:0;transition:opacity .35s;
+  background:radial-gradient(420px circle at var(--mx,50%) var(--my,50%),rgba(250,184,26,.13),transparent 46%)}
+.card:hover::before{opacity:1}
+.card:hover{border-color:#3A4150;box-shadow:0 34px 60px -34px rgba(0,0,0,.95)}
+.card .num{font-size:12px;font-weight:700;letter-spacing:.16em;color:var(--amber);margin-bottom:16px;display:block}
+.card h3{margin-bottom:9px}
+.card p{color:var(--muted);font-size:14.6px;line-height:1.62}
+.card .ico{width:46px;height:46px;border-radius:14px;display:grid;place-items:center;margin-bottom:18px;
+  background:rgba(250,184,26,.1);border:1px solid rgba(250,184,26,.22);transform:translateZ(26px)}
+.card .ico svg{width:23px;height:23px;stroke:var(--amber);fill:none;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
+.card .lift{transform:translateZ(18px)}
+
+/* reveal */
+.rv{opacity:0;transform:translateY(26px);transition:opacity .7s var(--ease),transform .7s var(--ease)}
+.rv.in{opacity:1;transform:none}
+
+/* ---------- code demo ---------- */
+.demo{display:grid;grid-template-columns:1fr 1fr;gap:46px;align-items:center}
+.duo{perspective:1500px;display:flex;justify-content:center;gap:0;position:relative;min-height:520px}
+.mini{position:absolute;width:214px;height:438px;border-radius:34px;padding:7px;
+  background:linear-gradient(150deg,#2B313D,#0E1116 48%,#232936);
+  box-shadow:0 46px 70px -34px rgba(0,0,0,.95), 0 0 0 1px rgba(255,255,255,.05);
+  transform-style:preserve-3d;transition:transform .7s var(--ease)}
+.mini .in{position:absolute;inset:7px;border-radius:27px;overflow:hidden;background:var(--ground);padding:16px 14px}
+.mini.a{left:2%;transform:rotateY(16deg) rotateX(4deg) translateZ(0)}
+.mini.b{right:2%;top:58px;transform:rotateY(-16deg) rotateX(4deg) translateZ(-40px)}
+.mlabel{font-size:9.5px;letter-spacing:.14em;text-transform:uppercase;color:var(--faint);margin-bottom:14px}
+.codebox{border:1px dashed rgba(250,184,26,.42);border-radius:14px;padding:14px 10px;text-align:center;
+  background:rgba(250,184,26,.06)}
+.codebox .d{display:flex;gap:8px;justify-content:center}
+.codebox .d b{width:34px;height:44px;border-radius:9px;background:#11141B;border:1px solid var(--line);
+  display:grid;place-items:center;font-size:20px;font-weight:700;color:var(--amber)}
+.codebox p{font-size:9.5px;color:var(--faint);margin-top:10px}
+.keypad{display:grid;grid-template-columns:repeat(3,1fr);gap:7px;margin-top:14px}
+.keypad b{height:32px;border-radius:9px;background:var(--surface-2);border:1px solid var(--line-soft);
+  display:grid;place-items:center;font-size:13px;font-weight:600;color:var(--muted);transition:.16s}
+.keypad b.hit{background:var(--amber);color:#14100A;border-color:transparent;transform:scale(.94)}
+.ring{width:120px;height:120px;margin:10px auto 0;position:relative}
+.ring svg{transform:rotate(-90deg)}
+.ring .v{position:absolute;inset:0;display:grid;place-items:center;text-align:center}
+.ring .v b{font-size:22px;font-weight:700;display:block;line-height:1}
+.ring .v i{font-style:normal;font-size:9px;color:var(--faint);letter-spacing:.1em;text-transform:uppercase}
+.okline{display:flex;align-items:center;gap:8px;font-size:11px;color:#5FD08A;margin-top:12px;opacity:0;transition:.4s}
+.okline.on{opacity:1}
+
+/* ---------- host panel ---------- */
+.host{border-radius:var(--rl);border:1px solid var(--line);overflow:hidden;position:relative;
+  background:linear-gradient(140deg,#15181F,#0D1014)}
+.host-in{display:grid;grid-template-columns:1.05fr .95fr;gap:40px;align-items:center;padding:56px 50px}
+.earn{perspective:1000px}
+.earn .c{border-radius:22px;padding:26px;background:linear-gradient(160deg,#1B1F2A,#12151C);
+  border:1px solid var(--line);transform:rotateY(-13deg) rotateX(7deg);transform-style:preserve-3d;
+  box-shadow:0 40px 70px -34px rgba(0,0,0,.95)}
+.earn .row{display:flex;justify-content:space-between;align-items:center;padding:11px 0;
+  border-bottom:1px solid var(--line-soft);font-size:13.5px}
+.earn .row:last-child{border:0}
+.earn .row b{color:var(--amber);font-weight:600}
+.earn .cap{font-size:11px;letter-spacing:.14em;text-transform:uppercase;color:var(--faint);margin-bottom:6px}
+
+/* ---------- download ---------- */
+.dl{border-radius:var(--rl);border:1px solid var(--line);padding:56px 50px;position:relative;overflow:hidden;
+  background:radial-gradient(900px 420px at 24% 0%,rgba(250,184,26,.13),transparent 62%),linear-gradient(160deg,#14171E,#0C0E13)}
+.dl-grid{display:grid;grid-template-columns:1.15fr .85fr;gap:46px;align-items:center;position:relative;z-index:2}
+.qr-big{display:flex;gap:22px;align-items:center;padding:22px;border-radius:20px;background:var(--surface);
+  border:1px solid var(--line)}
+.qr-big svg{width:132px;height:132px;background:#fff;border-radius:12px;padding:8px;flex:none}
+.qr-big h3{margin-bottom:6px}
+.qr-big p{font-size:13.5px;color:var(--muted)}
+.ios{border-radius:20px;border:1px dashed var(--line);padding:24px;background:rgba(255,255,255,.015)}
+.ios .tag{display:inline-block;font-size:11px;letter-spacing:.12em;text-transform:uppercase;
+  color:var(--faint);border:1px solid var(--line);padding:4px 10px;border-radius:99px;margin-bottom:12px}
+.ios h3{margin-bottom:7px}
+.ios p{font-size:13.8px;color:var(--muted)}
+
+/* ---------- footer ---------- */
+footer{border-top:1px solid var(--line-soft);padding:48px 0 40px;margin-top:40px}
+.f-in{display:flex;gap:30px;flex-wrap:wrap;align-items:flex-start}
+.f-brand{margin-right:auto;max-width:280px}
+.f-brand img{height:22px;margin-bottom:14px}
+.f-brand p{font-size:13.5px;color:var(--faint)}
+.f-col h4{font-size:12px;letter-spacing:.14em;text-transform:uppercase;color:var(--faint);margin-bottom:14px;font-weight:600}
+.f-col a{display:block;font-size:14px;color:var(--muted);margin-bottom:9px;transition:color .2s}
+.f-col a:hover{color:var(--amber)}
+.f-bot{margin-top:40px;padding-top:22px;border-top:1px solid var(--line-soft);
+  display:flex;justify-content:space-between;gap:16px;flex-wrap:wrap;font-size:13px;color:var(--faint)}
+
+/* ---------- responsive ---------- */
+@media (max-width:860px){ .qr-card{display:none} }
+@media (max-width:980px){
+  .hero-grid,.demo,.host-in,.dl-grid{grid-template-columns:1fr}
+  .hero-grid{gap:44px}
+  .stage{margin-top:8px}
+  .phone{width:264px;height:540px}
+  .road-scene{height:30%}
+  .grid3{grid-template-columns:1fr}
+  .grid2{grid-template-columns:1fr}
+  .nav-links{display:none}
+  header.hero{padding:120px 0 70px}
+  section{padding:76px 0}
+  .host-in,.dl{padding:38px 26px}
+  .duo{min-height:470px}
+  .mini{width:190px;height:392px}
+  .mini.a{left:0}.mini.b{right:0;top:44px}
+}
+@media (max-width:520px){
+  .qr-card{display:none}
+  .qr-big{flex-direction:column;text-align:center}
+  .cta-row{flex-direction:column;align-items:stretch}
+  .phone{width:238px;height:487px}
+}
+@media (prefers-reduced-motion:reduce){
+  *,*::before,*::after{animation:none!important;transition:none!important}
+  html{scroll-behavior:auto}
+  .rv{opacity:1;transform:none}
+  .phone{transform:none}
+  .mini.a,.mini.b{transform:none}
+}
+/* Container */
+.store-wrapper {
+  position: relative;
+  display: inline-block;
+  border-radius: 8px; /* Match your button's border-radius */
+  overflow: hidden;
+}
+
+/* Disable interactions on the link when coming soon */
+.store-wrapper.coming-soon .store {
+  pointer-events: none;
+  opacity: 0.6; /* Dim the original button slightly */
+}
+
+/* The Overlay */
+.store-wrapper.coming-soon .overlay {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background: rgba(11, 13, 18, 0); /* Uses your brand Charcoal #0B0D12 */
+  color: #F5A623; /* Uses your brand Amber */
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 600;
+  font-size: 0.9rem;
+  letter-spacing: 0.5px;
+  text-transform: uppercase;
+  backdrop-filter: blur(2px); /* Modern blur effect */
+}
 </style>
+<noscript><style>.rv{opacity:1!important;transform:none!important}</style></noscript>
 </head>
 <body>
 
-<main>
-  <img class="wordmark" src="/logo-wordmark.png" alt="ParkNext">
-  <p class="tagline">Rent a parking space by the hour, or earn from the one you already have.</p>
-  <p class="status">Coming to Android.</p>
-</main>
+<div id="prog"></div>
+<nav id="nav"><div class="wrap nav-in">
+  <a class="brand" href="./">
+    <img class="m" src="./tile.webp" alt="">
+    <img class="w" src="./logo-wordmark.webp" alt="ParkNext">
+  </a>
+  <div class="nav-links">
+    <a href="#how">How it works</a>
+    <a href="#code">Arrival code</a>
+    <a href="#hosts">For hosts</a>
+  </div>
+  <a class="btn btn-primary btn-sm" href="#get">Get the app</a>
+</div></nav>
+
+<header class="hero">
+  <div class="glowfield"></div>
+  <div class="road-scene"><div class="road"></div></div>
+  <div class="wrap hero-grid">
+    <div>
+      <span class="eyebrow"><i></i>Android first &middot; iOS next</span>
+      <h1>Park smart.<br><span class="amber">Live better.</span></h1>
+      <p class="lede">Find a parking space near you and book it by the hour — or earn from the
+        one sitting empty outside your home. No commission, no card on file.</p>
+
+      <div class="cta-row">
+        <a class="store" id="playBtn" href="https://play.google.com/store/apps/details?id=com.parknext.app" target="_blank">
+          <span class="ic" aria-hidden="true">
+            <svg xmlns="http://www.w3.org/2000/svg" fill-rule="evenodd" clip-rule="evenodd" image-rendering="optimizeQuality" shape-rendering="geometricPrecision" text-rendering="geometricPrecision" viewBox="0 0 466 511.98"><g fill-rule="nonzero"><path fill="#EA4335" d="M199.9 237.8 1.4 470.17c7.22 24.57 30.16 41.81 55.8 41.81 11.16 0 20.93-2.79 29.3-8.37l244.16-139.46L199.9 237.8z"/><path fill="#FBBC04" d="m433.91 205.1-104.65-60-111.61 110.22 113.01 108.83 104.64-58.6c18.14-9.77 30.7-29.3 30.7-50.23-1.4-20.93-13.95-40.46-32.09-50.22z"/><path fill="#34A853" d="M199.42 273.45 329.27 145.1 87.9 8.37C79.53 2.79 68.36 0 57.2 0 30.7 0 6.98 18.14 1.4 41.86l198.02 231.59z"/><path fill="#4285F4" d="M1.39 41.86C0 46.04 0 51.63 0 57.2v397.64c0 5.57 0 9.76 1.4 15.34l216.27-214.86L1.39 41.86z"/></g></svg>
+          </span>
+          <span><span class="sub" id="playSub">get It on</span><span class="main">Google Play</span></span>
+        </a>
+        <div class="store-wrapper coming-soon">
+          <a class="store" href="#get">
+            <span class="ic" aria-hidden="true">
+              <svg fill="#F5F6F8" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" stroke="#F5F6F8">
+                <path d="M18.71 19.5C17.88 20.74 17 21.95 15.66 21.97C14.32 22 13.89 21.18 12.37 21.18C10.84 21.18 10.37 21.95 9.09997 22C7.78997 22.05 6.79997 20.68 5.95997 19.47C4.24997 17 2.93997 12.45 4.69997 9.39C5.56997 7.87 7.12997 6.91 8.81997 6.88C10.1 6.86 11.32 7.75 12.11 7.75C12.89 7.75 14.37 6.68 15.92 6.84C16.57 6.87 18.39 7.1 19.56 8.82C19.47 8.88 17.39 10.1 17.41 12.63C17.44 15.65 20.06 16.66 20.09 16.67C20.06 16.74 19.67 18.11 18.71 19.5ZM13 3.5C13.73 2.67 14.94 2.04 15.94 2C16.07 3.17 15.6 4.35 14.9 5.19C14.21 6.04 13.07 6.7 11.95 6.61C11.8 5.46 12.36 4.26 13 3.5Z"></path>
+              </svg>
+            </span>
+            <span>
+              <span class="sub">Download on the</span>
+              <span class="main">App Store</span>
+            </span>
+          </a>
+          <!-- Overlay element -->
+          <div class="overlay">Coming Soon...</div>
+        </div>
+        <!-- <div class="qr-card">
+          <svg viewBox="0 0 25 25" class="qr-site" aria-label="QR code to park-next.in"><path d="M0 0h7v1h-7zM12 0h5v1h-5zM18 0h7v1h-7zM0 1h1v1h-1zM6 1h1v1h-1zM8 1h1v1h-1zM11 1h1v1h-1zM14 1h2v1h-2zM18 1h1v1h-1zM24 1h1v1h-1zM0 2h1v1h-1zM2 2h3v1h-3zM6 2h1v1h-1zM9 2h1v1h-1zM14 2h1v1h-1zM18 2h1v1h-1zM20 2h3v1h-3zM24 2h1v1h-1zM0 3h1v1h-1zM2 3h3v1h-3zM6 3h1v1h-1zM9 3h2v1h-2zM12 3h1v1h-1zM14 3h3v1h-3zM18 3h1v1h-1zM20 3h3v1h-3zM24 3h1v1h-1zM0 4h1v1h-1zM2 4h3v1h-3zM6 4h1v1h-1zM8 4h1v1h-1zM11 4h1v1h-1zM13 4h3v1h-3zM18 4h1v1h-1zM20 4h3v1h-3zM24 4h1v1h-1zM0 5h1v1h-1zM6 5h1v1h-1zM10 5h2v1h-2zM13 5h1v1h-1zM15 5h1v1h-1zM18 5h1v1h-1zM24 5h1v1h-1zM0 6h7v1h-7zM8 6h1v1h-1zM10 6h1v1h-1zM12 6h1v1h-1zM14 6h1v1h-1zM16 6h1v1h-1zM18 6h7v1h-7zM9 7h3v1h-3zM13 7h3v1h-3zM0 8h1v1h-1zM2 8h1v1h-1zM4 8h1v1h-1zM6 8h1v1h-1zM10 8h4v1h-4zM15 8h1v1h-1zM20 8h1v1h-1zM23 8h1v1h-1zM0 9h2v1h-2zM5 9h1v1h-1zM11 9h1v1h-1zM16 9h3v1h-3zM24 9h1v1h-1zM0 10h1v1h-1zM2 10h2v1h-2zM5 10h2v1h-2zM10 10h1v1h-1zM13 10h1v1h-1zM18 10h1v1h-1zM20 10h1v1h-1zM22 10h3v1h-3zM2 11h1v1h-1zM4 11h2v1h-2zM9 11h5v1h-5zM15 11h2v1h-2zM19 11h1v1h-1zM23 11h1v1h-1zM5 12h3v1h-3zM9 12h3v1h-3zM13 12h2v1h-2zM16 12h4v1h-4zM21 12h1v1h-1zM23 12h2v1h-2zM2 13h4v1h-4zM8 13h2v1h-2zM11 13h1v1h-1zM16 13h1v1h-1zM18 13h1v1h-1zM21 13h1v1h-1zM24 13h1v1h-1zM0 14h1v1h-1zM3 14h1v1h-1zM6 14h3v1h-3zM10 14h1v1h-1zM13 14h1v1h-1zM16 14h1v1h-1zM18 14h2v1h-2zM22 14h3v1h-3zM1 15h1v1h-1zM3 15h2v1h-2zM7 15h3v1h-3zM11 15h1v1h-1zM13 15h2v1h-2zM16 15h3v1h-3zM20 15h1v1h-1zM23 15h1v1h-1zM0 16h1v1h-1zM4 16h3v1h-3zM9 16h2v1h-2zM12 16h1v1h-1zM14 16h8v1h-8zM8 17h1v1h-1zM10 17h4v1h-4zM15 17h2v1h-2zM20 17h2v1h-2zM23 17h2v1h-2zM0 18h7v1h-7zM9 18h1v1h-1zM11 18h2v1h-2zM14 18h3v1h-3zM18 18h1v1h-1zM20 18h2v1h-2zM23 18h2v1h-2zM0 19h1v1h-1zM6 19h1v1h-1zM9 19h2v1h-2zM12 19h2v1h-2zM16 19h1v1h-1zM20 19h2v1h-2zM0 20h1v1h-1zM2 20h3v1h-3zM6 20h1v1h-1zM8 20h1v1h-1zM10 20h2v1h-2zM14 20h1v1h-1zM16 20h6v1h-6zM23 20h2v1h-2zM0 21h1v1h-1zM2 21h3v1h-3zM6 21h1v1h-1zM9 21h3v1h-3zM19 21h4v1h-4zM0 22h1v1h-1zM2 22h3v1h-3zM6 22h1v1h-1zM8 22h3v1h-3zM13 22h1v1h-1zM15 22h1v1h-1zM20 22h1v1h-1zM24 22h1v1h-1zM0 23h1v1h-1zM6 23h1v1h-1zM11 23h1v1h-1zM15 23h4v1h-4zM20 23h2v1h-2zM23 23h1v1h-1zM0 24h7v1h-7zM8 24h2v1h-2zM12 24h1v1h-1zM16 24h2v1h-2zM19 24h1v1h-1zM23 24h2v1h-2z" fill="#0B0D12"/></svg>
+          <svg viewBox="0 0 33 33" class="qr-play" hidden aria-label="QR code to the ParkNext listing on Google Play"><path d="M0 0h7v1h-7zM12 0h1v1h-1zM18 0h4v1h-4zM23 0h1v1h-1zM26 0h7v1h-7zM0 1h1v1h-1zM6 1h1v1h-1zM9 1h2v1h-2zM12 1h1v1h-1zM15 1h4v1h-4zM20 1h3v1h-3zM24 1h1v1h-1zM26 1h1v1h-1zM32 1h1v1h-1zM0 2h1v1h-1zM2 2h3v1h-3zM6 2h1v1h-1zM8 2h2v1h-2zM15 2h2v1h-2zM18 2h2v1h-2zM21 2h1v1h-1zM23 2h1v1h-1zM26 2h1v1h-1zM28 2h3v1h-3zM32 2h1v1h-1zM0 3h1v1h-1zM2 3h3v1h-3zM6 3h1v1h-1zM8 3h1v1h-1zM10 3h1v1h-1zM12 3h6v1h-6zM20 3h1v1h-1zM23 3h2v1h-2zM26 3h1v1h-1zM28 3h3v1h-3zM32 3h1v1h-1zM0 4h1v1h-1zM2 4h3v1h-3zM6 4h1v1h-1zM8 4h3v1h-3zM12 4h3v1h-3zM16 4h8v1h-8zM26 4h1v1h-1zM28 4h3v1h-3zM32 4h1v1h-1zM0 5h1v1h-1zM6 5h1v1h-1zM8 5h1v1h-1zM10 5h8v1h-8zM20 5h1v1h-1zM22 5h1v1h-1zM26 5h1v1h-1zM32 5h1v1h-1zM0 6h7v1h-7zM8 6h1v1h-1zM10 6h1v1h-1zM12 6h1v1h-1zM14 6h1v1h-1zM16 6h1v1h-1zM18 6h1v1h-1zM20 6h1v1h-1zM22 6h1v1h-1zM24 6h1v1h-1zM26 6h7v1h-7zM8 7h3v1h-3zM14 7h2v1h-2zM21 7h2v1h-2zM24 7h1v1h-1zM0 8h1v1h-1zM2 8h5v1h-5zM9 8h1v1h-1zM12 8h4v1h-4zM17 8h1v1h-1zM22 8h3v1h-3zM26 8h5v1h-5zM0 9h2v1h-2zM9 9h1v1h-1zM16 9h5v1h-5zM23 9h2v1h-2zM26 9h2v1h-2zM29 9h4v1h-4zM0 10h2v1h-2zM5 10h8v1h-8zM15 10h1v1h-1zM17 10h2v1h-2zM21 10h2v1h-2zM28 10h1v1h-1zM30 10h2v1h-2zM0 11h1v1h-1zM2 11h3v1h-3zM19 11h4v1h-4zM24 11h2v1h-2zM28 11h3v1h-3zM0 12h2v1h-2zM3 12h1v1h-1zM5 12h3v1h-3zM10 12h1v1h-1zM15 12h1v1h-1zM17 12h1v1h-1zM19 12h1v1h-1zM22 12h4v1h-4zM27 12h3v1h-3zM0 13h3v1h-3zM4 13h1v1h-1zM7 13h2v1h-2zM16 13h5v1h-5zM23 13h1v1h-1zM26 13h1v1h-1zM30 13h3v1h-3zM2 14h1v1h-1zM4 14h7v1h-7zM12 14h2v1h-2zM15 14h1v1h-1zM22 14h1v1h-1zM25 14h3v1h-3zM29 14h1v1h-1zM31 14h1v1h-1zM0 15h1v1h-1zM3 15h1v1h-1zM8 15h1v1h-1zM10 15h1v1h-1zM16 15h1v1h-1zM21 15h3v1h-3zM25 15h2v1h-2zM30 15h1v1h-1zM0 16h3v1h-3zM4 16h1v1h-1zM6 16h1v1h-1zM12 16h1v1h-1zM16 16h3v1h-3zM22 16h2v1h-2zM25 16h1v1h-1zM27 16h2v1h-2zM32 16h1v1h-1zM0 17h2v1h-2zM4 17h1v1h-1zM9 17h2v1h-2zM12 17h1v1h-1zM16 17h4v1h-4zM21 17h1v1h-1zM23 17h1v1h-1zM25 17h3v1h-3zM29 17h4v1h-4zM1 18h4v1h-4zM6 18h1v1h-1zM13 18h1v1h-1zM15 18h3v1h-3zM20 18h1v1h-1zM26 18h3v1h-3zM30 18h2v1h-2zM0 19h1v1h-1zM2 19h1v1h-1zM4 19h2v1h-2zM7 19h4v1h-4zM14 19h1v1h-1zM16 19h1v1h-1zM18 19h1v1h-1zM20 19h3v1h-3zM24 19h2v1h-2zM27 19h4v1h-4zM4 20h4v1h-4zM10 20h1v1h-1zM12 20h2v1h-2zM17 20h1v1h-1zM20 20h1v1h-1zM22 20h1v1h-1zM25 20h1v1h-1zM28 20h2v1h-2zM0 21h1v1h-1zM4 21h1v1h-1zM10 21h1v1h-1zM14 21h1v1h-1zM17 21h4v1h-4zM23 21h2v1h-2zM26 21h1v1h-1zM29 21h1v1h-1zM32 21h1v1h-1zM0 22h1v1h-1zM3 22h1v1h-1zM6 22h2v1h-2zM10 22h1v1h-1zM12 22h1v1h-1zM15 22h1v1h-1zM17 22h1v1h-1zM22 22h1v1h-1zM29 22h1v1h-1zM31 22h1v1h-1zM0 23h1v1h-1zM2 23h3v1h-3zM7 23h1v1h-1zM14 23h3v1h-3zM19 23h6v1h-6zM29 23h2v1h-2zM32 23h1v1h-1zM0 24h1v1h-1zM4 24h1v1h-1zM6 24h1v1h-1zM8 24h1v1h-1zM11 24h3v1h-3zM15 24h1v1h-1zM17 24h1v1h-1zM19 24h1v1h-1zM22 24h1v1h-1zM24 24h5v1h-5zM31 24h2v1h-2zM8 25h2v1h-2zM11 25h4v1h-4zM16 25h1v1h-1zM19 25h2v1h-2zM24 25h1v1h-1zM28 25h1v1h-1zM30 25h3v1h-3zM0 26h7v1h-7zM11 26h2v1h-2zM14 26h2v1h-2zM22 26h3v1h-3zM26 26h1v1h-1zM28 26h1v1h-1zM30 26h2v1h-2zM0 27h1v1h-1zM6 27h1v1h-1zM8 27h1v1h-1zM10 27h2v1h-2zM15 27h2v1h-2zM20 27h5v1h-5zM28 27h4v1h-4zM0 28h1v1h-1zM2 28h3v1h-3zM6 28h1v1h-1zM8 28h1v1h-1zM10 28h1v1h-1zM12 28h1v1h-1zM15 28h3v1h-3zM19 28h1v1h-1zM22 28h1v1h-1zM24 28h6v1h-6zM0 29h1v1h-1zM2 29h3v1h-3zM6 29h1v1h-1zM8 29h1v1h-1zM12 29h1v1h-1zM14 29h1v1h-1zM16 29h1v1h-1zM19 29h1v1h-1zM21 29h1v1h-1zM24 29h2v1h-2zM28 29h5v1h-5zM0 30h1v1h-1zM2 30h3v1h-3zM6 30h1v1h-1zM8 30h1v1h-1zM10 30h1v1h-1zM14 30h2v1h-2zM17 30h2v1h-2zM20 30h1v1h-1zM22 30h2v1h-2zM26 30h2v1h-2zM30 30h1v1h-1zM0 31h1v1h-1zM6 31h1v1h-1zM15 31h1v1h-1zM20 31h4v1h-4zM25 31h2v1h-2zM28 31h3v1h-3zM0 32h7v1h-7zM8 32h1v1h-1zM12 32h2v1h-2zM16 32h2v1h-2zM19 32h1v1h-1zM22 32h3v1h-3zM27 32h1v1h-1zM31 32h1v1h-1z" fill="#0B0D12"/></svg>
+          <p><b id="qrSmallT">Scan to open</b><span id="qrSmallP">Opens this page on your phone</span></p>
+        </div> -->
+      </div>
+
+      <div class="fineprint">
+        <span><svg viewBox="0 0 24 24" stroke-linecap="round"><path d="M20 6 9 17l-5-5"/></svg>Free to use</span>
+        <span><svg viewBox="0 0 24 24" stroke-linecap="round"><path d="M20 6 9 17l-5-5"/></svg>No commission</span>
+        <span><svg viewBox="0 0 24 24" stroke-linecap="round"><path d="M20 6 9 17l-5-5"/></svg>No card needed</span>
+      </div>
+    </div>
+
+    <div class="stage">
+      <div class="phone float" id="phone">
+        <div class="halo"></div>
+        <div class="body">
+          <div class="screen">
+            <div class="scr">
+              <div class="map">
+                <div class="streets"></div>
+                <div class="main-rd"></div>
+                <span class="me"></span>
+                <div class="pin" style="left:24%;top:38%;animation-delay:.5s"><svg viewBox="0 0 24 34" fill="none"><path d="M12 33s11-12.2 11-20A11 11 0 1 0 1 13c0 7.8 11 20 11 20Z" fill="#FAB81A"/><circle cx="12" cy="12.6" r="4.6" fill="#101115"/></svg></div>
+                <div class="pin" style="left:66%;top:31%;animation-delay:.72s"><svg viewBox="0 0 24 34" fill="none"><path d="M12 33s11-12.2 11-20A11 11 0 1 0 1 13c0 7.8 11 20 11 20Z" fill="#FAB81A"/><circle cx="12" cy="12.6" r="4.6" fill="#101115"/></svg></div>
+                <div class="pin" style="left:78%;top:46%;animation-delay:.94s"><svg viewBox="0 0 24 34" fill="none"><path d="M12 33s11-12.2 11-20A11 11 0 1 0 1 13c0 7.8 11 20 11 20Z" fill="#FAB81A"/><circle cx="12" cy="12.6" r="4.6" fill="#101115"/></svg></div>
+                <div class="pin" style="left:38%;top:50%;animation-delay:1.16s"><svg viewBox="0 0 24 34" fill="none"><path d="M12 33s11-12.2 11-20A11 11 0 1 0 1 13c0 7.8 11 20 11 20Z" fill="#FAB81A"/><circle cx="12" cy="12.6" r="4.6" fill="#101115"/></svg></div>
+              </div>
+              <div class="topbar"><div class="search">
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#9CA3AF" stroke-width="2.4"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.2-3.2"/></svg>
+                Search an area or address</div></div>
+              <div class="chipbar">
+                <span class="chip on">Now</span>
+                <span class="chip">Schedule</span>
+                <span class="chip">Filters</span>
+              </div>
+              <div class="sheet">
+                <div class="grab"></div>
+                <div class="hd"><b>4 spots nearby</b><span>Nearest</span></div>
+                <div class="lcard"><div class="ph"></div><div><div class="t">Koramangala 5th Block</div><div class="s">Covered &middot; 240 m</div></div><div class="p">₹30<i>per hour</i></div></div>
+                <div class="lcard"><div class="ph"></div><div><div class="t">Indiranagar 100ft Road</div><div class="s">EV charging &middot; 1.1 km</div></div><div class="p">₹40<i>per hour</i></div></div>
+                <div class="lcard"><div class="ph"></div><div><div class="t">HSR Layout Sector 2</div><div class="s">Guarded &middot; 1.8 km</div></div><div class="p">₹25<i>per hour</i></div></div>
+              </div>
+            </div>
+          </div>
+          <div class="notch"></div>
+          <div class="glare"></div>
+        </div>
+      </div>
+    </div>
+  </div>
+</header>
+
+<div class="ticker"><div class="tick-in" id="tick">
+  <span>Book by the hour</span><span>Live map, real availability</span><span>4-digit arrival code</span>
+  <span>Pay the host directly</span><span>No commission</span><span>Extend without leaving the car</span>
+  <span>Two-way ratings</span><span>Delete your account any time</span>
+</div></div>
+
+<section id="how">
+  <div class="wrap">
+    <div class="shead rv">
+      <span class="eyebrow">For drivers</span>
+      <h2>Three taps from circling<br>the block to parked.</h2>
+      <p class="lede">No hunting, no meter, no attendant. You see what is free right now, you book it,
+      and the host lets you in with a code.</p>
+    </div>
+    <div class="grid3">
+      <div class="card rv" data-tilt>
+        <span class="num lift">01</span>
+        <div class="ico"><svg viewBox="0 0 24 24"><path d="M12 21s7-6.2 7-11a7 7 0 1 0-14 0c0 4.8 7 11 7 11Z"/><circle cx="12" cy="10" r="2.6"/></svg></div>
+        <h3 class="lift">See what is actually free</h3>
+        <p class="lift">A live map of spaces around you, with the price, the photos and whether it is
+        covered, guarded or has a charger — before you commit to driving there.</p>
+      </div>
+      <div class="card rv" data-tilt>
+        <span class="num lift">02</span>
+        <div class="ico"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3.2 2"/></svg></div>
+        <h3 class="lift">Book now, or book ahead</h3>
+        <p class="lift">Need it this minute, or a slot on Thursday at ten? Pick the window and only
+        spaces genuinely open then will show up.</p>
+      </div>
+      <div class="card rv" data-tilt>
+        <span class="num lift">03</span>
+        <div class="ico"><svg viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="14" rx="3"/><path d="M8 11h2M14 11h2M8 15h8"/></svg></div>
+        <h3 class="lift">Arrive with a code</h3>
+        <p class="lift">Show the host your four digits. They type it in, your timer starts, and the
+        space is yours until you tap that you are leaving.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section id="code">
+  <div class="wrap demo">
+    <div class="rv">
+      <span class="eyebrow">The handover</span>
+      <h2 style="margin:16px 0 14px">Four digits instead<br>of a barrier.</h2>
+      <p class="lede" style="margin-bottom:26px">Your booking does not start when you book it. It starts
+      the moment the host types your code — so nobody pays for time they did not get, and nobody
+      holds a space for someone who never turned up.</p>
+      <div class="card" data-tilt style="padding:22px 24px">
+        <p class="lift" style="color:var(--text);font-size:15px">Leaving early ends the booking there and
+        then, and puts the rest of the slot back on the map for someone else.</p>
+      </div>
+    </div>
+    <div class="duo" id="duo">
+      <div class="mini a">
+        <div class="in">
+          <div class="mlabel">Driver</div>
+          <div class="codebox">
+            <div class="d"><b>4</b><b>1</b><b>7</b><b>2</b></div>
+            <p>SHOW THIS TO THE HOST</p>
+          </div>
+          <div class="ring" id="ringWrap" style="display:none">
+            <svg width="120" height="120"><circle cx="60" cy="60" r="52" stroke="#242A36" stroke-width="8" fill="none"/>
+              <circle id="ring" cx="60" cy="60" r="52" stroke="#FAB81A" stroke-width="8" fill="none"
+                stroke-linecap="round" stroke-dasharray="327" stroke-dashoffset="0"/></svg>
+            <div class="v"><b id="tleft">1:59</b><i>left</i></div>
+          </div>
+          <div class="okline" id="ok1">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#5FD08A" stroke-width="3" stroke-linecap="round"><path d="M20 6 9 17l-5-5"/></svg>
+            Host confirmed your arrival
+          </div>
+        </div>
+      </div>
+      <div class="mini b">
+        <div class="in">
+          <div class="mlabel">Host</div>
+          <div style="font-size:12px;font-weight:600;margin-bottom:4px">Confirm arrival</div>
+          <div style="font-size:10px;color:var(--faint);margin-bottom:12px">Enter the driver's 4-digit code</div>
+          <div class="codebox"><div class="d"><b id="h0"></b><b id="h1"></b><b id="h2"></b><b id="h3"></b></div></div>
+          <div class="keypad" id="pad">
+            <b>1</b><b>2</b><b>3</b><b>4</b><b>5</b><b>6</b><b>7</b><b>8</b><b>9</b>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section>
+  <div class="wrap">
+    <div class="shead rv">
+      <span class="eyebrow">Everything in the box</span>
+      <h2>Built for the ten minutes<br>you would rather not spend.</h2>
+    </div>
+    <div class="grid3">
+      <div class="card rv" data-tilt><div class="ico"><svg viewBox="0 0 24 24"><path d="M3 7l6-3 6 3 6-3v13l-6 3-6-3-6 3V7Z"/><path d="M9 4v13M15 7v13"/></svg></div><h3 class="lift">Live map</h3><p class="lift">Real GPS, real availability, OpenStreetMap under the hood. Filter by price band, amenities or vehicle type.</p></div>
+      <div class="card rv" data-tilt><div class="ico"><svg viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="16" rx="3"/><path d="M8 3v4M16 3v4M3 11h18"/></svg></div><h3 class="lift">Hourly, or scheduled</h3><p class="lift">Instant bookings for right now; pick a day, start time and duration for anything later.</p></div>
+      <div class="card rv" data-tilt><div class="ico"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3.2 2"/></svg></div><h3 class="lift">A timer you can extend</h3><p class="lift">Watch the time left count down, and add fifteen or thirty minutes without walking back to the car.</p></div>
+      <div class="card rv" data-tilt><div class="ico"><svg viewBox="0 0 24 24"><path d="M12 3l2.6 5.6 6.1.8-4.5 4.2 1.2 6L12 16.8 6.6 19.6l1.2-6L3.3 9.4l6.1-.8L12 3Z"/></svg></div><h3 class="lift">Two-way ratings</h3><p class="lift">Drivers rate hosts, hosts rate drivers. The whole trust system, since there is no money in the middle.</p></div>
+      <div class="card rv" data-tilt><div class="ico"><svg viewBox="0 0 24 24"><path d="M12 2v20M17 6H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg></div><h3 class="lift">You pay the host</h3><p class="lift">Cash or UPI, directly, at the space. ParkNext takes no commission and never sees a card number.</p></div>
+      <div class="card rv" data-tilt><div class="ico"><svg viewBox="0 0 24 24"><rect x="4" y="10" width="16" height="10" rx="2.5"/><path d="M8 10V7a4 4 0 0 1 8 0v3"/></svg></div><h3 class="lift">Contacts stay shut</h3><p class="lift">Phone numbers only unlock once a booking is accepted — enforced in the database, not just hidden on a screen.</p></div>
+    </div>
+  </div>
+</section>
+
+<section id="hosts">
+  <div class="wrap">
+    <div class="host rv">
+      <div class="host-in">
+        <div>
+          <span class="eyebrow">For hosts</span>
+          <h2 style="margin:16px 0 14px">That empty spot is<br>already earning.</h2>
+          <p class="lede" style="margin-bottom:26px">List the space once — photos, price, the hours it is
+          free — and switch it on when you want it working. Requests come to you, and you accept or
+          decline in a tap.</p>
+          <a class="btn btn-ghost" href="#get">See how listing works</a>
+        </div>
+        <div class="earn">
+          <div class="c">
+            <div class="cap">Booking request</div>
+            <div style="font-size:16px;font-weight:600;margin-bottom:14px">Today, 2:00 – 5:00 PM</div>
+            <div class="row"><span>Rate</span><b>₹30 / hour</b></div>
+            <div class="row"><span>Duration</span><b>3 hours</b></div>
+            <div class="row"><span>You receive</span><b>₹90</b></div>
+            <div class="row"><span>ParkNext fee</span><b>₹0</b></div>
+            <div style="display:flex;gap:9px;margin-top:18px">
+              <span class="btn btn-primary btn-sm" style="flex:1">Accept</span>
+              <span class="btn btn-ghost btn-sm" style="flex:1">Decline</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section id="get">
+  <div class="wrap">
+    <div class="dl rv">
+      <span class="eyebrow"><i></i>Android first</span>
+          <h2 style="margin:16px 0 14px">Get ParkNext.</h2>
+          <p class="lede" style="margin-bottom:28px">Free to download, free to list, and nothing to set up
+          beyond a name and a number.</p>
+      <div class="dl-grid">
+        <div>
+          
+          <div class="qr-big">
+            <!-- Supplied artwork. Sized with height:auto and given a white
+                 backing on purpose: the file's own background rect is
+                 fill="transparent" with #000000 modules, so on this dark
+                 card it would be black-on-nothing and unscannable; and its
+                 box is 1000x1300, so the old square 132x132 svg rule would
+                 have squashed the modules. -->
+            <img class="qr-art" src="park-Next.svg" alt="QR code to park-next.in"
+                 style="width:150px;height:auto;flex:none;display:block;
+                        border-radius:12px;padding:8px">
+            <div>
+              <h3 id="qrTitle">Scan with your phone</h3>
+              <p id="qrText">Opens the ParkNext listing on Google Play.</p>
+              <a class="btn btn-primary btn-sm" id="playBtn2" href="https://play.google.com/store/apps/details?id=com.parknext.app" style="margin-top:14px; display:none">Open Google Play</a>
+            </div>
+          </div>
+        </div>
+        <div class="ios">
+          <span class="tag">iPhone &amp; iPad</span>
+          <h3>Coming to iOS Soon...</h3>
+          <p>ParkNext is Android-first while we get the model right. An iOS build is next on the
+          list</p>
+          <p style="margin-top:25px;font-size:13px;color:var(--faint)">Want a nudge when it lands?
+          Write to <a href="mailto:service.parknext@gmail.com" style="color:var(--amber)">service.parknext@gmail.com</a>.</p>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
 
 <footer>
-  <a href="/privacy">Privacy Policy</a>
-  <a href="/delete-account">Delete your account</a>
-  <a href="mailto:sevice.parknext@gmail.com">sevice.parknext@gmail.com</a>
+  <div class="wrap">
+    <div class="f-in">
+      <div class="f-brand">
+        <img src="./logo-wordmark.webp" alt="ParkNext">
+        <p>Rent a parking space by the hour, or earn from the one you already have.</p>
+      </div>
+      <div class="f-col">
+        <h4>Product</h4>
+        <a href="#how">How it works</a>
+        <a href="#hosts">For hosts</a>
+        <a href="#get">Get the app</a>
+      </div>
+      <div class="f-col">
+        <h4>Legal</h4>
+        <a href="/privacy">Privacy Policy</a>
+        <a href="/delete-account">Delete your account</a>
+      </div>
+      <div class="f-col">
+        <h4>Contact</h4>
+        <a href="mailto:service.parknext@gmail.com">service.parknext@gmail.com</a>
+      </div>
+    </div>
+    <div class="f-bot">
+      <span>&copy; <span id="yr">2026</span> ParkNext</span>
+      <span>park-next.in</span>
+    </div>
+  </div>
 </footer>
 
+<script>
+/* ----------------------------------------------------------------------
+   ONE PLACE TO EDIT WHEN THE APP GOES LIVE
+   Flip androidLive to true the day the Play listing is public. Everything
+   else on the page — the two buttons, the QR captions — follows from it.
+---------------------------------------------------------------------- */
+const CONFIG = {
+  playStoreUrl: 'https://play.google.com/store/apps/details?id=com.parknext.app',
+  androidLive: false
+};
+
+(function () {
+  const reduce = matchMedia('(prefers-reduced-motion: reduce)').matches;
+  document.getElementById('yr').textContent = new Date().getFullYear();
+
+  /* store buttons + QR copy follow CONFIG */
+  const play = document.getElementById('playBtn'), play2 = document.getElementById('playBtn2');
+  const qrSite = document.querySelectorAll('.qr-site'), qrPlay = document.querySelectorAll('.qr-play');
+  if (CONFIG.androidLive) {
+    [play, play2].forEach(function (el) { el.href = CONFIG.playStoreUrl; el.target = '_blank'; el.rel = 'noopener'; });
+    document.getElementById('playSub').textContent = 'Get it on';
+    play2.textContent = 'Open Google Play';
+    qrSite.forEach(function (n) { n.hidden = true; });
+    qrPlay.forEach(function (n) { n.hidden = false; });
+    document.getElementById('qrSmallT').textContent = 'Scan to install';
+    document.getElementById('qrSmallP').textContent = 'Point your camera here';
+    document.getElementById('qrTitle').textContent = 'Scan with your phone';
+    document.getElementById('qrText').textContent = 'Opens the ParkNext listing on Google Play.';
+  } else {
+    document.getElementById('qrTitle').textContent = 'Scan to open on your phone';
+    document.getElementById('qrText').textContent =
+      'The Play listing goes public shortly. Until then this code opens park-next.in, so you can come back and install in one tap.';
+    play2.textContent = 'Get It on Google Play';
+    play2.classList.remove('btn-primary'); play2.classList.add('btn-ghost');
+  }
+
+  /* sticky nav */
+  const nav = document.getElementById('nav');
+  const prog = document.getElementById('prog');
+  const onScroll = function () {
+    nav.classList.toggle('stuck', scrollY > 16);
+    const max = document.body.scrollHeight - innerHeight;
+    prog.style.width = (max > 0 ? (scrollY / max) * 100 : 0) + '%';
+  };
+  onScroll(); addEventListener('scroll', onScroll, { passive: true });
+
+  /* marquee: duplicate the run so the -50% loop is seamless */
+  const tick = document.getElementById('tick');
+  tick.innerHTML += tick.innerHTML;
+
+  /* scroll reveals */
+  const io = new IntersectionObserver(function (es) {
+    es.forEach(function (e) { if (e.isIntersecting) { e.target.classList.add('in'); io.unobserve(e.target); } });
+  }, { threshold: .16, rootMargin: '0px 0px -8% 0px' });
+  document.querySelectorAll('.rv').forEach(function (el) { io.observe(el); });
+
+  if (reduce) return;
+
+  /* ---- hero phone: pointer + scroll drive one smoothed 3D transform ---- */
+  const phone = document.getElementById('phone');
+  let tx = -17, ty = 6, cx = -17, cy = 6;
+  addEventListener('pointermove', function (e) {
+    const w = innerWidth, h = innerHeight;
+    tx = -17 + (e.clientX / w - .5) * 26;
+    ty = 6 - (e.clientY / h - .5) * 16;
+  }, { passive: true });
+  (function tickPhone() {
+    cx += (tx - cx) * .07; cy += (ty - cy) * .07;
+    const s = Math.min(scrollY / 700, 1);
+    phone.style.transform = 'rotateX(' + (cy - s * 5).toFixed(2) + 'deg) rotateY(' + (cx + s * 9).toFixed(2) + 'deg) translateZ(' + (-s * 40).toFixed(1) + 'px)';
+    requestAnimationFrame(tickPhone);
+  })();
+
+  /* ---- tilt cards ---- */
+  document.querySelectorAll('[data-tilt]').forEach(function (card) {
+    card.addEventListener('pointermove', function (e) {
+      const r = card.getBoundingClientRect();
+      const px = (e.clientX - r.left) / r.width, py = (e.clientY - r.top) / r.height;
+      card.style.setProperty('--mx', (px * 100) + '%');
+      card.style.setProperty('--my', (py * 100) + '%');
+      card.style.transform = 'perspective(900px) rotateY(' + ((px - .5) * 9).toFixed(2) +
+        'deg) rotateX(' + ((.5 - py) * 9).toFixed(2) + 'deg) translateY(-4px)';
+    });
+    card.addEventListener('pointerleave', function () { card.style.transform = ''; });
+  });
+
+  /* ---- the arrival-code sequence, once the pair scrolls into view ---- */
+  const duo = document.getElementById('duo');
+  const CODE = '4172';
+  const cells = ['h0', 'h1', 'h2', 'h3'].map(function (id) { return document.getElementById(id); });
+  const keys = Array.prototype.slice.call(document.querySelectorAll('#pad b'));
+  const ring = document.getElementById('ring'), ringWrap = document.getElementById('ringWrap');
+  const tleft = document.getElementById('tleft'), ok1 = document.getElementById('ok1');
+  const LEN = 327;
+  let timer = null;
+
+  function reset() {
+    cells.forEach(function (c) { c.textContent = ''; });
+    keys.forEach(function (k) { k.classList.remove('hit'); });
+    ringWrap.style.display = 'none'; ok1.classList.remove('on');
+    ring.setAttribute('stroke-dashoffset', 0);
+    if (timer) { clearInterval(timer); timer = null; }
+  }
+
+  function run() {
+    reset();
+    let i = 0;
+    (function step() {
+      if (i >= CODE.length) return setTimeout(confirmed, 520);
+      const d = CODE[i];
+      const key = keys.filter(function (k) { return k.textContent === d; })[0];
+      if (key) { key.classList.add('hit'); setTimeout(function () { key.classList.remove('hit'); }, 210); }
+      cells[i].textContent = d;
+      i++;
+      setTimeout(step, 420);
+    })();
+  }
+
+  function confirmed() {
+    ok1.classList.add('on');
+    ringWrap.style.display = 'block';
+    let total = 119, left = total;
+    ring.setAttribute('stroke-dashoffset', 0);
+    timer = setInterval(function () {
+      left -= 1;
+      if (left < 0) { clearInterval(timer); timer = null; setTimeout(run, 1400); return; }
+      tleft.textContent = Math.floor(left / 60) + ':' + String(left % 60).padStart(2, '0');
+      ring.setAttribute('stroke-dashoffset', (LEN * (1 - left / total)).toFixed(1));
+    }, 40);
+  }
+
+  const dio = new IntersectionObserver(function (es) {
+    es.forEach(function (e) { if (e.isIntersecting) { run(); dio.unobserve(e.target); } });
+  }, { threshold: .4 });
+  dio.observe(duo);
+
+  /* ---- the two demo phones swing apart a touch as they scroll past ---- */
+  const a = duo.querySelector('.mini.a'), b = duo.querySelector('.mini.b');
+  addEventListener('scroll', function () {
+    const r = duo.getBoundingClientRect();
+    const p = Math.max(-1, Math.min(1, (innerHeight / 2 - (r.top + r.height / 2)) / innerHeight));
+    a.style.transform = 'rotateY(' + (16 - p * 7) + 'deg) rotateX(4deg) translateY(' + (p * -14) + 'px)';
+    b.style.transform = 'rotateY(' + (-16 - p * 7) + 'deg) rotateX(4deg) translateZ(-40px) translateY(' + (p * 16) + 'px)';
+  }, { passive: true });
+})();
+</script>
 </body>
 </html>
