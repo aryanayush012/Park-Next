@@ -25,6 +25,42 @@ import { LEAFLET_CSS, LEAFLET_JS } from '../../assets/leafletAssets';
  */
 const READY_TIMEOUT_MS = 8000;
 
+/**
+ * How Android composites the map WebView. THE single biggest lever on map
+ * performance, and a genuine trade-off — read before changing.
+ *
+ * 'software' (current): tiles are rasterised on the CPU. Slow, and painfully
+ *   so on mid-range hardware, where panning a filtered tile map can miss most
+ *   of its frames. It is set this way on purpose: leaving it unset let
+ *   Chromium turn on its own hardware-overlay path (confirmed via `adb
+ *   logcat`: "WebView overlays are enabled!" on a Samsung Galaxy S24 FE,
+ *   never on a Pixel 7), which drove a reload-crash-reload cycle and let the
+ *   overlay swallow taps meant for buttons drawn above the map — a
+ *   SurfaceControl layer is composited by the OS, so its z-order need not
+ *   follow React Native's view tree at all.
+ *
+ * 'hardware': GPU compositing. Transforms the map's smoothness, and re-opens
+ *   the crash above on the devices that exhibited it.
+ *
+ * Set to 'hardware' deliberately. CPU-rasterising a filtered tile map costs
+ * more than any amount of JavaScript tuning on this screen can win back —
+ * measured the hard way, by fixing four real JS-side problems here and having
+ * none of them be perceptible on a mid-range device.
+ *
+ * What makes that trade acceptable is that the failure mode is contained:
+ * `handleRenderProcessGone` below does NOT auto-reload, so a dying renderer
+ * surfaces the ordinary retry UI instead of the endless reload cycle that was
+ * the original symptom. The bad case is a map that needs a tap to come back,
+ * not a crash and not a flicker loop.
+ *
+ * Both failures were device-specific — seen on a Samsung Galaxy S24 FE, never
+ * on a Pixel 7. If this device is one of the affected ones, the tells are
+ * (a) the map going blank or showing its retry card repeatedly, and (b) the
+ * layer/locate buttons above the map not responding to taps. Either one means
+ * put this back to 'software', and reduce the WebView's drawing work instead.
+ */
+const ANDROID_LAYER_TYPE: 'software' | 'hardware' | 'none' = 'hardware';
+
 export interface MapMarker extends GeoPoint {
   id: string;
   /** Short text shown on the pin, e.g. "₹40". */
@@ -149,6 +185,7 @@ export function MapView({
   // instance — see the route effect below for why this needs a value
   // comparison rather than relying on the `route` prop's object identity.
   const lastRouteJsonRef = useRef<string | null>(null);
+  const lastMarkersJsonRef = useRef<string | null>(null);
 
   // Built once per reload; the initial center/zoom only matter before `ready`
   // fires, after which __setView drives the camera without a page reload.
@@ -162,6 +199,7 @@ export function MapView({
     // guard below must not assume "unchanged" just because the same route
     // value was already injected into the previous (now-discarded) instance.
     lastRouteJsonRef.current = null;
+    lastMarkersJsonRef.current = null;
     const timer = setTimeout(() => setTimedOut(true), READY_TIMEOUT_MS);
     return () => clearTimeout(timer);
   }, [reloadKey]);
@@ -170,11 +208,21 @@ export function MapView({
     setReloadKey((key) => key + 1);
   };
 
+  // Compared by VALUE, for the same reason `route` is below it.
+  //
+  // `markers` is derived — callers build it with `filteredListings.map(...)`
+  // — so it is a new array on every render of the screen, and re-injecting
+  // rebuilds every marker on the page. That is cheap once and ruinous in a
+  // loop: dragging the budget slider re-derives the array on every touch
+  // frame, so the map was serialising and re-creating every pin ~60 times a
+  // second. Most of those arrays are identical in content; the reference is
+  // the only thing that changed.
   useEffect(() => {
     if (!isReady) return;
-    webviewRef.current?.injectJavaScript(
-      `window.__setMarkers(${JSON.stringify(markers)}); true;`
-    );
+    const nextJson = JSON.stringify(markers);
+    if (nextJson === lastMarkersJsonRef.current) return;
+    lastMarkersJsonRef.current = nextJson;
+    webviewRef.current?.injectJavaScript(`window.__setMarkers(${nextJson}); true;`);
   }, [isReady, markers]);
 
   // `route` is an object literal most callers rebuild fresh on every render
@@ -323,24 +371,8 @@ export function MapView({
         bounces={false}
         showsHorizontalScrollIndicator={false}
         showsVerticalScrollIndicator={false}
-        // `androidLayerType="software"` — not just "unset". Leaving this
-        // unset (Android's own default) still let Chromium enable its own
-        // hardware-overlay compositing path on its own (confirmed via `adb
-        // logcat`: "WebView overlays are enabled!" printed on every load on
-        // a Samsung Galaxy S24 FE regardless of this prop, never on a Pixel
-        // 7), which kept the map's reload-crash-reload cycle going, just
-        // less often. That overlay is a SurfaceControl layer composited by
-        // the OS directly rather than through the normal Android View tree,
-        // which is also the likely reason a button placed *above* the map
-        // in the React tree could still have its taps swallowed — a
-        // hardware overlay's compositor order isn't guaranteed to follow
-        // React Native's view z-order at all. Forcing software rendering
-        // keeps the WebView inside the ordinary View compositing path
-        // instead, where both the crash and the stolen touches stop being
-        // possible by construction, not just less likely. The real cost is
-        // CPU-rendered tiles instead of GPU-composited ones — worth it for
-        // an actually-working map over a marginally smoother broken one.
-        androidLayerType="software"
+        // See ANDROID_LAYER_TYPE at the top of this file.
+        androidLayerType={ANDROID_LAYER_TYPE}
       />
       {!isReady && !showError ? (
         <View pointerEvents="none" style={styles.loadingOverlay}>
@@ -597,7 +629,11 @@ function buildMapHtml(lat: number, lng: number, zoom: number): string {
     standard: {
       url: 'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',
       options: { maxZoom: 19, attribution: '(c) OpenStreetMap' },
-      filter: 'invert(1) hue-rotate(180deg) brightness(0.95) contrast(0.9) saturate(0.6)',
+      // Three functions, not five. Every function here is per-tile work on
+      // every pan, so the two that were dropped — brightness(0.95) and
+      // contrast(0.9) — were pure cost: close enough to identity to be
+      // invisible next to the other three, checked against real tiles.
+      filter: 'invert(1) hue-rotate(180deg) saturate(0.6)',
     },
     // Never filtered: it is a photograph. Inversion or heavy grading here
     // is what made this look nothing like the imagery people expect.

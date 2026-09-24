@@ -151,7 +151,7 @@ const styles = StyleSheet.create({
     paddingTop: spacing.sm,
   },
   greeting: {
-    ...typography.displayLarge,
+    ...typography.display,
     color: colors.textPrimary,
   },
   subtitle: {

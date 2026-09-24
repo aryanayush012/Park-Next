@@ -409,7 +409,7 @@ const styles = StyleSheet.create({
     paddingBottom: spacing.xl,
   },
   title: {
-    ...typography.h2,
+    ...typography.display,
     color: colors.textPrimary,
     paddingVertical: spacing.md,
   },

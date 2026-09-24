@@ -11,7 +11,17 @@ export interface SliderProps {
   /** Values snap to this. Defaults to 1. */
   step?: number;
   value: number;
+  /** Fires on every movement. Keep the work here cheap — see `onCommit`. */
   onChange: (value: number) => void;
+  /**
+   * Fires once, when the thumb is let go.
+   *
+   * Anything expensive belongs here rather than in `onChange`: re-filtering a
+   * list, rebuilding map markers, hitting the network. `onChange` runs on
+   * every touch frame, so doing that work there costs it ~60 times a second
+   * for a drag whose only meaningful result is the value it ends on.
+   */
+  onCommit?: (value: number) => void;
   accessibilityLabel?: string;
 }
 
@@ -40,6 +50,7 @@ export function Slider({
   step = 1,
   value,
   onChange,
+  onCommit,
   accessibilityLabel,
 }: SliderProps) {
   const [trackWidth, setTrackWidth] = useState(0);
@@ -51,10 +62,12 @@ export function Slider({
 
   // Read by the handlers below, which are created once and so must never
   // close over a prop directly.
-  const latest = useRef({ min, max, step, span, travel, value, onChange });
-  latest.current = { min, max, step, span, travel, value, onChange };
+  const latest = useRef({ min, max, step, span, travel, value, onChange, onCommit });
+  latest.current = { min, max, step, span, travel, value, onChange, onCommit };
 
   const dragStart = useRef(0);
+  /** Newest value this gesture produced; what `onCommit` reports. */
+  const lastEmitted = useRef(value);
   // Screen-absolute X of the container's left edge, refreshed on every
   // layout — see the comment in onPanResponderGrant for why this is needed
   // instead of just reading `locationX` off the touch event.
@@ -93,6 +106,7 @@ export function Slider({
           const touchX = gesture.x0 - containerPageX.current;
           const next = snap(lo + ((touchX - THUMB / 2) / tr) * sp);
           dragStart.current = next;
+          lastEmitted.current = next;
           setDragValue(next);
           if (next !== latest.current.value) latest.current.onChange(next);
         },
@@ -102,12 +116,22 @@ export function Slider({
           const snap = (raw: number) =>
             Math.round(Math.min(Math.max(raw, lo), hi) / s) * s;
           const next = snap(dragStart.current + (gesture.dx / tr) * sp);
+          lastEmitted.current = next;
           setDragValue((current) => (current === next ? current : next));
           if (next !== latest.current.value) latest.current.onChange(next);
         },
 
-        onPanResponderRelease: () => setDragValue(null),
-        onPanResponderTerminate: () => setDragValue(null),
+        // The committed value is read from the ref rather than from
+        // `dragValue`, whose setter is async -- on a tap (grant with no move)
+        // the state has not landed by the time the finger lifts.
+        onPanResponderRelease: () => {
+          setDragValue(null);
+          latest.current.onCommit?.(lastEmitted.current);
+        },
+        onPanResponderTerminate: () => {
+          setDragValue(null);
+          latest.current.onCommit?.(lastEmitted.current);
+        },
       }),
     []
   );

@@ -230,7 +230,7 @@ const styles = StyleSheet.create({
     paddingBottom: spacing.md,
   },
   title: {
-    ...typography.displayLarge,
+    ...typography.display,
     color: colors.textPrimary,
   },
   subtitle: {

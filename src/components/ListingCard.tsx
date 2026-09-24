@@ -172,9 +172,12 @@ const styles = StyleSheet.create({
     ...elevation.card,
   },
   cardPressed: {
-    opacity: 1,
-    transform: [{ scale: 0.985 }],
-    borderColor: colors.primary,
+    // The card lifts toward the light rather than shrinking away from the
+    // finger. A scale-down reads as the card retreating, and an amber border
+    // reads as "selected" or "invalid" — neither of which a tap means. Moving
+    // the surface one step up the elevation ramp is the same signal every
+    // other pressable in the app gives, and it costs no geometry change.
+    backgroundColor: colors.surfaceElevated,
   },
   photoWrap: {
     width: '100%',

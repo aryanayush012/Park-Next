@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   Animated,
   Dimensions,
+  Easing,
   FlatList,
   Keyboard,
   Modal,
@@ -51,6 +52,33 @@ type Props = NativeStackScreenProps<RenterHomeStackParamList, 'HomeMap'>;
 const { height: SCREEN_HEIGHT } = Dimensions.get('window');
 const SHEET_COLLAPSED_HEIGHT = 148;
 const SHEET_EXPANDED_HEIGHT = Math.round(SCREEN_HEIGHT * 0.62);
+/**
+ * How far the sheet slides between collapsed and expanded.
+ *
+ * The sheet is always laid out at its EXPANDED height and moved up and down
+ * by this much, rather than having its `height` animated. Height is a layout
+ * property: the native driver cannot touch it, so animating it ran the spring
+ * on the JS thread and forced a full layout pass — of a sheet containing a
+ * FlatList — on every frame. That is what made opening the list stutter.
+ * Translating a fixed-size view is a compositor-only change, so it runs on the
+ * UI thread and the list never re-measures.
+ */
+const SHEET_TRAVEL = SHEET_EXPANDED_HEIGHT - SHEET_COLLAPSED_HEIGHT;
+
+
+/**
+ * Lets a modal's sheet slide while the modal itself only fades.
+ *
+ * `Modal animationType="slide"` translates the WHOLE modal, backdrop
+ * included — so the full-screen scrim entered from below as a hard horizontal
+ * edge sweeping up the screen, which is the "jump" these sheets opened with.
+ * Fading the modal and sliding only the sheet separates the two: the scrim
+ * dissolves in place, the sheet travels.
+ */
+const AnimatedSafeAreaView = Animated.createAnimatedComponent(SafeAreaView);
+
+/** How far a modal sheet rises as it comes in. */
+const MODAL_RISE = 28;
 const CARD_HEIGHT = 258;
 // Caps the Filters sheet's scrollable body so its "Show N Spots" button stays
 // on screen even with every section (Sort/Budget/Amenities/Vehicle Type)
@@ -186,14 +214,37 @@ export function HomeMapScreen({ navigation }: Props) {
   });
   const [scheduleDurationMinutes, setScheduleDurationMinutes] = useState(120);
 
-  const sheetHeight = useRef(new Animated.Value(SHEET_COLLAPSED_HEIGHT)).current;
+  /** Distance below the expanded position: 0 is open, SHEET_TRAVEL is shut. */
+  const sheetOffset = useRef(new Animated.Value(SHEET_TRAVEL)).current;
+  /**
+   * What the sheet and the map controls actually render from.
+   *
+   * The gesture writes the raw finger delta into `sheetOffset`, which can run
+   * past either end of the travel — dragging up beyond the open position
+   * would otherwise lift the sheet clean off its anchor and show a gap under
+   * it. Clamping on the way out bounds the visible result while leaving the
+   * underlying value free, so the release maths still sees where the finger
+   * really went. `extrapolate: 'clamp'` is native-driver safe.
+   */
+  const sheetTranslate = useMemo(
+    () =>
+      sheetOffset.interpolate({
+        inputRange: [0, SHEET_TRAVEL],
+        outputRange: [0, SHEET_TRAVEL],
+        extrapolate: 'clamp',
+      }),
+    [sheetOffset]
+  );
+  /** Entrance rise for each modal sheet; the modal itself only fades. */
+  const scheduleRise = useRef(new Animated.Value(MODAL_RISE)).current;
+  const filtersRise = useRef(new Animated.Value(MODAL_RISE)).current;
   const listRef = useRef<FlatList<Listing>>(null);
 
   // Animated.Value doesn't expose a synchronous getter, so we track the
   // last-committed height ourselves — both the tap-to-toggle animation below
   // and the drag gesture need to know "where is the sheet right now" to
   // compute the next frame / decide which way to snap.
-  const currentHeightRef = useRef(SHEET_COLLAPSED_HEIGHT);
+  const currentOffsetRef = useRef(SHEET_TRAVEL);
 
   // Guards against an out-of-order response: `currentLocation` starts on the
   // mock fallback and this re-fires once real GPS resolves (or once a place
@@ -223,49 +274,108 @@ export function HomeMapScreen({ navigation }: Props) {
   useRealtimeTable('listings', loadListings);
 
   useEffect(() => {
-    const target = sheetExpanded ? SHEET_EXPANDED_HEIGHT : SHEET_COLLAPSED_HEIGHT;
-    Animated.spring(sheetHeight, {
+    if (!filtersModalVisible) return;
+    // Reset first: the previous open left the value at 0, so without this a
+    // second open would have nothing left to travel.
+    filtersRise.setValue(MODAL_RISE);
+    const anim = Animated.timing(filtersRise, {
+      toValue: 0,
+      duration: 220,
+      easing: Easing.out(Easing.cubic),
+      useNativeDriver: true,
+    });
+    anim.start();
+    return () => anim.stop();
+  }, [filtersModalVisible, filtersRise]);
+
+  useEffect(() => {
+    if (!scheduleModalVisible) return;
+    scheduleRise.setValue(MODAL_RISE);
+    const anim = Animated.timing(scheduleRise, {
+      toValue: 0,
+      duration: 220,
+      easing: Easing.out(Easing.cubic),
+      useNativeDriver: true,
+    });
+    anim.start();
+    return () => anim.stop();
+  }, [scheduleModalVisible, scheduleRise]);
+
+  useEffect(() => {
+    const target = sheetExpanded ? 0 : SHEET_TRAVEL;
+    Animated.spring(sheetOffset, {
       toValue: target,
-      useNativeDriver: false,
+      useNativeDriver: true,
       bounciness: 4,
     }).start();
-    currentHeightRef.current = target;
-  }, [sheetExpanded, sheetHeight]);
+    currentOffsetRef.current = target;
+  }, [sheetExpanded, sheetOffset]);
 
-  // Lets the user actually drag the handle/header up and down, rather than
-  // only tap it to toggle — this was previously missing entirely (the
-  // handle only had an onPress), which is why dragging did nothing.
-  const dragStartHeight = useRef(SHEET_COLLAPSED_HEIGHT);
+  // Mirrors `sheetExpanded` for the gesture handlers, which are built once
+  // and would otherwise read a stale value out of their closure.
+  const sheetExpandedRef = useRef(false);
+  sheetExpandedRef.current = sheetExpanded;
+
+  const springSheet = useCallback(
+    (expand: boolean) => {
+      const target = expand ? 0 : SHEET_TRAVEL;
+      currentOffsetRef.current = target;
+      Animated.spring(sheetOffset, {
+        toValue: target,
+        useNativeDriver: true,
+        bounciness: 4,
+      }).start();
+    },
+    [sheetOffset]
+  );
+
+  /**
+   * Dragging the sheet.
+   *
+   * This stays on `PanResponder`, and it is worth writing down why, because
+   * the obvious upgrade does not work here. A drag that never touches JS
+   * needs the gesture to write into the animated value natively —
+   * `PanGestureHandler` plus `Animated.event({ useNativeDriver: true })`.
+   * Under the New Architecture (newArchEnabled=true) that event never
+   * attaches and the handler throws "Expected 'onGestureHandlerEvent' to be
+   * a function" the moment a finger lands. The supported native-gesture path
+   * on Fabric is Reanimated, which is a NATIVE dependency — adding it means
+   * a rebuild, so it is not a JS-only fix.
+   *
+   * The expensive part of the old version was never the responder anyway: it
+   * animated `height`, so every frame ran a layout pass over a sheet holding
+   * a FlatList. Now it moves a transform, so each frame is one bridge write
+   * and a composite, with no layout at all.
+   */
+  const dragStartOffset = useRef(SHEET_TRAVEL);
   const panResponder = useRef(
     PanResponder.create({
       onStartShouldSetPanResponder: () => true,
       onMoveShouldSetPanResponder: (_evt, gesture) => Math.abs(gesture.dy) > 2,
       onPanResponderGrant: () => {
-        dragStartHeight.current = currentHeightRef.current;
+        dragStartOffset.current = currentOffsetRef.current;
       },
       onPanResponderMove: (_evt, gesture) => {
-        // Dragging up (negative dy) should grow the sheet.
-        const next = clamp(
-          dragStartHeight.current - gesture.dy,
-          SHEET_COLLAPSED_HEIGHT,
-          SHEET_EXPANDED_HEIGHT
-        );
-        sheetHeight.setValue(next);
-        currentHeightRef.current = next;
+        // Dragging up (negative dy) shrinks the offset, which grows the
+        // visible sheet — the sign is the opposite of the old height model.
+        const next = clamp(dragStartOffset.current + gesture.dy, 0, SHEET_TRAVEL);
+        sheetOffset.setValue(next);
+        currentOffsetRef.current = next;
       },
       onPanResponderRelease: (_evt, gesture) => {
         // A near-stationary release is a tap on the handle, not a drag —
-        // just flip the current state rather than running the snap logic.
+        // flip the current state rather than running the snap logic.
         const wasTap = Math.abs(gesture.dy) < 6 && Math.abs(gesture.vy) < 0.1;
-        if (wasTap) {
-          setSheetExpanded((prev) => !prev);
-          return;
-        }
-        const midpoint = (SHEET_COLLAPSED_HEIGHT + SHEET_EXPANDED_HEIGHT) / 2;
-        const fastFlickUp = gesture.vy < -0.6;
-        const fastFlickDown = gesture.vy > 0.6;
-        const shouldExpand = fastFlickUp || (!fastFlickDown && currentHeightRef.current > midpoint);
-        setSheetExpanded(shouldExpand);
+        const shouldExpand = wasTap
+          ? !sheetExpandedRef.current
+          : gesture.vy < -0.6 ||
+            (gesture.vy <= 0.6 && currentOffsetRef.current < SHEET_TRAVEL / 2);
+
+        // When the decision matches the state already held, React bails out
+        // and the effect above never re-runs — the sheet would just stay
+        // where the finger left it. Spring it home here instead.
+        if (shouldExpand === sheetExpandedRef.current) springSheet(shouldExpand);
+        else setSheetExpanded(shouldExpand);
       },
     })
   ).current;
@@ -287,7 +397,20 @@ export function HomeMapScreen({ navigation }: Props) {
     };
   }, [searchMode, scheduleDays, scheduleDateOffset, scheduleStartMinutes, scheduleDurationMinutes]);
 
-  const budgetValue = filters.maxPricePerHour ?? BUDGET_MAX;
+  const committedBudget = filters.maxPricePerHour ?? BUDGET_MAX;
+  /**
+   * The budget the thumb is currently over, while it is being dragged.
+   *
+   * Separate from the committed filter on purpose. `filters` is a dependency
+   * of `filteredListings`, which is a dependency of `markers`, which the map
+   * injects into its WebView — so writing every touch frame into `filters`
+   * re-filtered the list, re-sorted a copy of it and rebuilt every map pin,
+   * about sixty times a second, for a drag whose only meaningful result is
+   * where it stops. The draft drives the label alone; the real filter lands
+   * once, on release.
+   */
+  const [budgetDraft, setBudgetDraft] = useState<number | null>(null);
+  const budgetValue = budgetDraft ?? committedBudget;
 
   // `query` narrows down WHERE to search (via queryCenter, above) rather than
   // filtering listings by keyword — `listings` here is already scoped to
@@ -421,7 +544,8 @@ export function HomeMapScreen({ navigation }: Props) {
     navigation.navigate('ListingDetail', { listingId, defaultBookingType, schedule });
   };
 
-  const setMaxPrice = (next: number) => {
+  const commitMaxPrice = (next: number) => {
+    setBudgetDraft(null);
     setFilters((prev) => ({
       ...prev,
       // At the top of the track there is no ceiling at all, so store null
@@ -462,12 +586,20 @@ export function HomeMapScreen({ navigation }: Props) {
       />
 
       {/* Map controls sit just above the listings sheet and ride with it:
-          `sheetHeight` is the same Animated.Value that drives the sheet, so
+          `sheetOffset` is the same Animated.Value that drives the sheet, so
           they track it through a drag rather than jumping once it settles.
-          Anchored from the bottom, so the layer picker opens upward into
-          free map instead of underneath the sheet. */}
+          Anchored at the sheet's OPEN position and pushed down by the offset,
+          which puts them exactly where `bottom: height + gap` used to — but as
+          a transform, so it animates on the UI thread with the sheet instead
+          of re-running layout beside it. */}
       <Animated.View
-        style={[styles.mapControls, { bottom: Animated.add(sheetHeight, spacing.sm) }]}
+        style={[
+          styles.mapControls,
+          {
+            bottom: SHEET_EXPANDED_HEIGHT + spacing.sm,
+            transform: [{ translateY: sheetTranslate }],
+          },
+        ]}
         pointerEvents="box-none"
       >
         {layerPickerOpen ? (
@@ -665,7 +797,12 @@ export function HomeMapScreen({ navigation }: Props) {
         )}
       </SafeAreaView>
 
-      <Animated.View style={[styles.sheet, { height: sheetHeight }]}>
+      <Animated.View
+        style={[
+          styles.sheet,
+          { height: SHEET_EXPANDED_HEIGHT, transform: [{ translateY: sheetTranslate }] },
+        ]}
+      >
         <View style={styles.sheetHandleArea} {...panResponder.panHandlers}>
           <View style={styles.sheetHandle} />
         </View>
@@ -693,6 +830,14 @@ export function HomeMapScreen({ navigation }: Props) {
             index,
           })}
           onScrollToIndexFailed={() => {}}
+          // The sheet is laid out at its EXPANDED height even while collapsed
+          // (that is what lets it slide instead of re-measuring), so without a
+          // cap the list would mount a full screen of cards behind a 148px
+          // window. getItemLayout is already supplied, so windowing here is
+          // free of the usual blank-cell risk.
+          initialNumToRender={4}
+          maxToRenderPerBatch={4}
+          windowSize={5}
           renderItem={({ item }) => (
             <View style={styles.cardWrap}>
               <ListingCard
@@ -737,11 +882,17 @@ export function HomeMapScreen({ navigation }: Props) {
       <Modal
         visible={scheduleModalVisible}
         transparent
-        animationType="slide"
+        // "fade", not "slide": slide moves the whole modal, scrim and all.
+        // The sheet does its own travelling below.
+        animationType="fade"
+        statusBarTranslucent
         onRequestClose={() => setScheduleModalVisible(false)}
       >
         <Pressable style={styles.modalBackdrop} onPress={() => setScheduleModalVisible(false)} />
-        <SafeAreaView style={styles.modalSheet} edges={['bottom']}>
+        <AnimatedSafeAreaView
+          style={[styles.modalSheet, { transform: [{ translateY: scheduleRise }] }]}
+          edges={['bottom']}
+        >
           <Text style={styles.modalTitle}>{t('home.whenNeeded')}</Text>
 
           <Text style={styles.modalSectionLabel}>{t('home.date')}</Text>
@@ -829,17 +980,23 @@ export function HomeMapScreen({ navigation }: Props) {
           >
             <Text style={styles.modalNowLinkText}>{t('home.needItNow')}</Text>
           </Pressable>
-        </SafeAreaView>
+        </AnimatedSafeAreaView>
       </Modal>
 
       <Modal
         visible={filtersModalVisible}
         transparent
-        animationType="slide"
+        // "fade", not "slide": slide moves the whole modal, scrim and all.
+        // The sheet does its own travelling below.
+        animationType="fade"
+        statusBarTranslucent
         onRequestClose={() => setFiltersModalVisible(false)}
       >
         <Pressable style={styles.modalBackdrop} onPress={() => setFiltersModalVisible(false)} />
-        <SafeAreaView style={styles.modalSheet} edges={['bottom']}>
+        <AnimatedSafeAreaView
+          style={[styles.modalSheet, { transform: [{ translateY: filtersRise }] }]}
+          edges={['bottom']}
+        >
           <View style={styles.filtersModalHeader}>
             <Text style={styles.modalTitle}>{t('home.filters')}</Text>
             {activeFilterCount > 0 && (
@@ -875,7 +1032,8 @@ export function HomeMapScreen({ navigation }: Props) {
               max={BUDGET_MAX}
               step={BUDGET_STEP}
               value={budgetValue}
-              onChange={setMaxPrice}
+              onChange={setBudgetDraft}
+              onCommit={commitMaxPrice}
               accessibilityLabel={t('home.budget')}
             />
 
@@ -912,7 +1070,7 @@ export function HomeMapScreen({ navigation }: Props) {
             onPress={() => setFiltersModalVisible(false)}
             style={styles.filtersApplyButton}
           />
-        </SafeAreaView>
+        </AnimatedSafeAreaView>
       </Modal>
     </View>
   );
@@ -955,7 +1113,8 @@ const styles = StyleSheet.create({
   },
   mapControls: {
     position: 'absolute',
-    // `bottom` is supplied at render time from the sheet's animated height.
+    // `bottom` and the matching translateY are supplied at render time so the
+    // controls ride the sheet; see the comment where they are rendered.
     right: spacing.md,
     alignItems: 'flex-end',
     gap: spacing.xs,
